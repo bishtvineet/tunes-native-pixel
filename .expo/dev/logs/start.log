@@ -1,0 +1,18 @@
+{"_e":"root:init","_t":1791704109703,"format":"v0-jsonl","version":"57.0.28"}
+{"_e":"env:mode","_t":1791704109706,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1791704109714,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1791704111053,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1791704112632,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"expo:dev-tools-plugin:load","_t":1791704121953,"plugins":[]}
+{"_e":"metro:instantiate","_t":1791704146304,"atlas":false,"workers":6,"host":"::","port":8081}
+{"_e":"root:init","_t":1791704319517,"format":"v0-jsonl","version":"57.0.28"}
+{"_e":"env:mode","_t":1791704319520,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1791704319531,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1791704320891,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1791704322419,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"expo:dev-tools-plugin:load","_t":1791704323679,"plugins":[]}
+{"_e":"metro:instantiate","_t":1791704335703,"atlas":false,"workers":6,"host":"::","port":8081}
+{"_e":"metro:bundling:started","_t":1791704344982,"id":"1","platform":"ios","environment":null,"entry":"index.ts"}
+{"_e":"metro:bundling:progress","_t":1791704344983,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:progress","_t":1791704344998,"id":"1","progress":0,"total":1,"current":0}
+{"_e":"metro:bundling:failed","_t":1791704345010,"id":"1","message":"Cannot read properties of undefined (reading 'transformFile')","importStack":null,"filename":null,"targetModuleName":null,"originModulePath":null}
