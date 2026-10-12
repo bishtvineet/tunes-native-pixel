@@ -1,0 +1,53 @@
+name: Build iOS IPA (Free Unsigned)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: ⬇️ Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci || npm install
+
+      - name: ⚙️ Setup Expo CLI
+        run: npm install -g eas-cli
+
+      - name: 📱 Prebuild iOS Project
+        run: npx expo prebuild --platform ios --clean
+
+      - name: 🔨 Build iOS App (Release Unsigned)
+        run: |
+          cd ios
+          xcodebuild -workspace *.xcworkspace \
+            -scheme Tunes \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/tunesnative.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: 📦 Package .ipa File
+        run: |
+          mkdir -p Payload
+          cp -r ios/build/tunesnative.xcarchive/Products/Applications/*.app Payload/
+          zip -r tunes-native.ipa Payload
+
+      - name: 🚀 Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunes-native-ipa
+          path: tunes-native.ipa
+          retention-days: 3
