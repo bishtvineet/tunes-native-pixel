@@ -23,7 +23,14 @@ export interface Track {
 export type Song = Track;
 
 export type RepeatMode = 'off' | 'all' | 'one';
-export type PlaybackContext = 'All' | 'Favorite';
+export type PlaybackContext = 
+  | 'All' 
+  | 'Favorites' 
+  | 'Queue' 
+  | 'Playlist' 
+  | 'Album' 
+  | 'Artist' 
+  | string; //
 
 export interface ProgressCallbackData {
   percent: number; // 0 to 100, or -1 when indeterminate

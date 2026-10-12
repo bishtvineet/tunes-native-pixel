@@ -2,21 +2,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
-  Platform
+  Platform,
 } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
-import { BottomNavBar, type RootTab } from './src/components/navigation/BottomNavBar';
+import { BottomNavBar, RootTab } from './src/components/navigation/BottomNavBar';
 import { FullPlayerSheet } from './src/components/player/FullPlayerSheet';
+import { SettingsSheet } from './src/components/settings/SettingsSheet';
 import { HomeScreen } from './src/screens/home/HomeScreen';
 import { SearchScreen } from './src/screens/search/SearchScreen';
 import { LibraryScreen } from './src/screens/library/LibraryScreen';
 import { useAudioPlayer } from './src/hooks/useAudioPlayer';
 import {
   getAllTracks,
+  saveTrack,
   deleteTrack,
   toggleTrackFavorite,
   getStorageStats,
@@ -26,10 +27,12 @@ import type { Track, PlaybackContext } from './src/types';
 
 function MainAppShell() {
   const { tokens } = useTheme();
+  const insets = useSafeAreaInsets();
   const [currentRoute, setCurrentRoute] = useState<RootTab>('Home');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [storageUsage, setStorageUsageStr] = useState('0.0 MB');
   const [isLoading, setIsLoading] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const {
     currentTrack,
@@ -37,6 +40,7 @@ function MainAppShell() {
     currentTime,
     duration,
     repeatMode,
+    isShuffle,
     playbackContext,
     playTrack,
     togglePlay,
@@ -44,6 +48,7 @@ function MainAppShell() {
     nextTrack,
     prevTrack,
     toggleRepeat,
+    toggleShuffle,
     stopTrack,
     updatePlaybackContext,
   } = useAudioPlayer();
@@ -77,10 +82,15 @@ function MainAppShell() {
   }, [refreshLibrary]);
 
   const handleTrackSaved = async (newTrack: Track) => {
-    await refreshLibrary();
-    setCurrentRoute('Library');
-    const updated = await getAllTracks();
-    playTrack(newTrack, 'All', updated);
+    try {
+      await saveTrack(newTrack);
+      const updatedList = await getAllTracks();
+      setTracks(updatedList);
+      const stats = await getStorageStats();
+      setStorageUsageStr(stats.formattedSize);
+    } catch (err) {
+      console.error('[App] Error saving newly downloaded track:', err);
+    }
   };
 
   const handleDeleteTrack = async (id: string) => {
@@ -93,6 +103,23 @@ function MainAppShell() {
 
   const handleToggleFavorite = async (id: string) => {
     await toggleTrackFavorite(id);
+
+    setTracks((prevTracks) => {
+      const updated = prevTracks.map((t) =>
+        t.id === id ? { ...t, isFavorite: !t.isFavorite } : t
+      );
+
+      const currentQueue =
+        playbackContext === 'Favorites'
+          ? updated.filter((t) => t.isFavorite)
+          : updated.filter((t) => !t.isFavorite);
+
+      if (updatePlaybackContext) {
+        updatePlaybackContext(playbackContext, currentQueue);
+      }
+      return updated;
+    });
+
     await refreshLibrary();
   };
 
@@ -105,11 +132,21 @@ function MainAppShell() {
   };
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: tokens.background }]}>
+    <View
+      style={[
+        styles.root,
+        {
+          backgroundColor: tokens.background,
+          paddingTop: insets.top,
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+        },
+      ]}
+    >
       <StatusBar
-  barStyle="light-content"
-  {...(Platform.OS === 'android' ? { backgroundColor: tokens.background } : {})}
-/>
+        barStyle="light-content"
+        {...(Platform.OS === 'android' ? { backgroundColor: tokens.background } : {})}
+      />
 
       <View style={styles.body}>
         {isLoading ? (
@@ -118,23 +155,52 @@ function MainAppShell() {
           </View>
         ) : (
           <>
-            {currentRoute === 'Home' && (
+            {/* Kept permanently mounted in native view hierarchy */}
+            <View
+              style={[
+                styles.tabContainer,
+                {
+                  opacity: currentRoute === 'Home' ? 1 : 0,
+                  zIndex: currentRoute === 'Home' ? 1 : -1,
+                  pointerEvents: currentRoute === 'Home' ? 'auto' : 'none',
+                },
+              ]}
+            >
               <HomeScreen
                 tracks={tracks}
                 currentTrack={currentTrack}
                 isPlaying={isPlaying}
                 onPlayTrack={handlePlayTrack}
+                onTogglePlay={togglePlay}
                 onToggleFavorite={handleToggleFavorite}
                 onDeleteTrack={handleDeleteTrack}
                 onNavigateTab={setCurrentRoute}
               />
-            )}
+            </View>
 
-            {currentRoute === 'Search' && (
+            <View
+              style={[
+                styles.tabContainer,
+                {
+                  opacity: currentRoute === 'Download' ? 1 : 0,
+                  zIndex: currentRoute === 'Download' ? 1 : -1,
+                  pointerEvents: currentRoute === 'Download' ? 'auto' : 'none',
+                },
+              ]}
+            >
               <SearchScreen onTrackSaved={handleTrackSaved} />
-            )}
+            </View>
 
-            {currentRoute === 'Library' && (
+            <View
+              style={[
+                styles.tabContainer,
+                {
+                  opacity: currentRoute === 'Library' ? 1 : 0,
+                  zIndex: currentRoute === 'Library' ? 1 : -1,
+                  pointerEvents: currentRoute === 'Library' ? 'auto' : 'none',
+                },
+              ]}
+            >
               <LibraryScreen
                 tracks={tracks}
                 currentTrack={currentTrack}
@@ -145,32 +211,45 @@ function MainAppShell() {
                 onDeleteTrack={handleDeleteTrack}
                 onRefreshLibrary={refreshLibrary}
               />
-            )}
+            </View>
           </>
         )}
       </View>
 
-      {/* Floating Mini Player & Full Player Modal */}
+      {/* Full Player & Mini Player Sheet */}
       <FullPlayerSheet
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}
         duration={duration}
         repeatMode={repeatMode}
+        isShuffle={isShuffle}
         playbackContext={playbackContext}
         onTogglePlay={togglePlay}
         onSeek={seek}
         onNext={nextTrack}
         onPrev={prevTrack}
         onToggleRepeat={toggleRepeat}
+        onToggleShuffle={toggleShuffle}
+        onToggleFavorite={handleToggleFavorite}
+        onNavigateToLibrary={() => setCurrentRoute('Library')}
       />
 
       {/* Floating Bottom Navigation Bar */}
       <BottomNavBar
         currentRoute={currentRoute}
         onNavigate={setCurrentRoute}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
-    </SafeAreaView>
+
+      {/* Slide-Up Settings Sheet */}
+      <SettingsSheet
+        visible={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        storageUsage={storageUsage}
+        onClearCache={refreshLibrary}
+      />
+    </View>
   );
 }
 
@@ -190,10 +269,14 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
+    position: 'relative',
   },
   centerLoading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  tabContainer: {
+    ...StyleSheet.absoluteFill,
   },
 });

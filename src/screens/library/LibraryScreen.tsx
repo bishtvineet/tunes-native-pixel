@@ -44,13 +44,23 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   const [isCleaning, setIsCleaning] = useState(false);
   const [cleanNotice, setCleanNotice] = useState<string | null>(null);
 
-  // Tab Filtering
+  // Exclusive separation: Favorites move out of the All Tracks list
+  const nonFavoriteTracks = useMemo(
+    () => tracks.filter((t) => !t.isFavorite),
+    [tracks]
+  );
+  const favoriteTracks = useMemo(
+    () => tracks.filter((t) => t.isFavorite),
+    [tracks]
+  );
+
+  // Tab Selection
   const filteredByTab = useMemo(() => {
     if (activeTab === 'FAVORITES') {
-      return tracks.filter((t) => t.isFavorite);
+      return favoriteTracks;
     }
-    return tracks;
-  }, [tracks, activeTab]);
+    return nonFavoriteTracks;
+  }, [nonFavoriteTracks, favoriteTracks, activeTab]);
 
   // Search Query Filtering
   const displayedTracks = useMemo(() => {
@@ -155,7 +165,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               { color: activeTab === 'ALL' ? '#FFFFFF' : tokens.onSurfaceVariant },
             ]}
           >
-            All Tracks ({tracks.length})
+            All Tracks ({nonFavoriteTracks.length})
           </Text>
         </TouchableOpacity>
 
@@ -176,7 +186,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               { color: activeTab === 'FAVORITES' ? '#FFFFFF' : tokens.onSurfaceVariant },
             ]}
           >
-            Favorites ({tracks.filter((t) => t.isFavorite).length})
+            Favorites ({favoriteTracks.length})
           </Text>
         </TouchableOpacity>
 
@@ -261,12 +271,12 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <View style={styles.emptyContainer}>
               <Icon name="library" size={48} color={tokens.outline} />
               <Text style={[styles.emptyTitle, { color: tokens.onSurface }]}>
-                {activeTab === 'FAVORITES' ? 'No favorites yet' : 'No tracks saved'}
+                {activeTab === 'FAVORITES' ? 'No favorites yet' : 'No un-favorited tracks'}
               </Text>
               <Text style={[styles.emptySubtitle, { color: tokens.onSurfaceVariant }]}>
                 {activeTab === 'FAVORITES'
                   ? 'Tap the heart icon on any track to add it to your favorites.'
-                  : 'Search or paste a YouTube audio link in the Search tab to download tracks offline.'}
+                  : 'All your tracks are currently marked as favorites.'}
               </Text>
             </View>
           ) : (

@@ -1,224 +1,397 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  createAudioPlayer,
-  AudioPlayer,
-  setAudioModeAsync,
-} from 'expo-audio';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
+import { updateTrackDuration } from '../services/storage';
+import { configureBackgroundAudio } from '../services/audioPlayerService';
 import type { Track, RepeatMode, PlaybackContext } from '../types';
 
-export const useAudioPlayer = () => {
+export function useAudioPlayer() {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
+  const [isShuffle, setIsShuffle] = useState<boolean>(false);
   const [playbackContext, setPlaybackContext] = useState<PlaybackContext>('All');
+  const [queue, setQueue] = useState<Track[]>([]);
 
-  const activeQueueRef = useRef<Track[]>([]);
-  const repeatModeRef = useRef<RepeatMode>('off');
+  // Engine references
+  const playerRef = useRef<AudioPlayer | null>(null);
+  const queueRef = useRef<Track[]>([]);
   const currentTrackRef = useRef<Track | null>(null);
-  const playerRef = useRef<any>(null);
+  const repeatModeRef = useRef<RepeatMode>('off');
+  const isShuffleRef = useRef<boolean>(false);
+  const isPlayingRef = useRef<boolean>(false);
+  const playRequestIdRef = useRef<number>(0);
+  const isTransitioningRef = useRef<boolean>(false);
+  const statusSubscriptionRef = useRef<any>(null);
+
+  // Mutable refs for lock screen remote commands
+  const nextTrackRef = useRef<() => void>(() => {});
+  const prevTrackRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
 
   useEffect(() => {
     repeatModeRef.current = repeatMode;
   }, [repeatMode]);
 
   useEffect(() => {
-    currentTrackRef.current = currentTrack;
-  }, [currentTrack]);
+    isShuffleRef.current = isShuffle;
+  }, [isShuffle]);
 
-  // Configure native audio session on mount with background playback enabled
   useEffect(() => {
-    const initAudio = async () => {
-      try {
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          staysActiveInBackground: true,
-          interruptionMode: 'doNotMix',
-          shouldRouteThroughEarpiece: false,
-        } as any);
-      } catch (err) {
-        console.warn('[AudioPlayer] AudioMode initialization warning:', err);
-      }
-    };
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
-    initAudio();
-
+  useEffect(() => {
+    configureBackgroundAudio();
     return () => {
+      if (statusSubscriptionRef.current) {
+        try {
+          statusSubscriptionRef.current.remove?.();
+        } catch {}
+        statusSubscriptionRef.current = null;
+      }
       if (playerRef.current) {
         try {
-          if (typeof playerRef.current.remove === 'function') {
-            playerRef.current.remove();
-          } else if (typeof playerRef.current.release === 'function') {
-            playerRef.current.release();
+          if (typeof (playerRef.current as any).setActiveForLockScreen === 'function') {
+            (playerRef.current as any).setActiveForLockScreen(false);
           }
+          playerRef.current.pause();
         } catch {}
+        playerRef.current = null;
       }
     };
   }, []);
 
-  const nextTrackRef = useRef<() => void>(() => {});
+  const safeTearDownCurrentPlayer = useCallback(() => {
+    if (statusSubscriptionRef.current) {
+      try {
+        if (typeof statusSubscriptionRef.current.remove === 'function') {
+          statusSubscriptionRef.current.remove();
+        }
+      } catch {}
+      statusSubscriptionRef.current = null;
+    }
+
+    if (playerRef.current) {
+      const p = playerRef.current;
+      playerRef.current = null;
+      try {
+        if (typeof (p as any).setActiveForLockScreen === 'function') {
+          (p as any).setActiveForLockScreen(false);
+        }
+        p.pause();
+      } catch {}
+    }
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    if (!playerRef.current || isTransitioningRef.current) return;
+    try {
+      if (isPlayingRef.current) {
+        playerRef.current.pause();
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+      } else {
+        playerRef.current.play();
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+      }
+    } catch (err) {
+      console.warn('[useAudioPlayer] togglePlay error:', err);
+    }
+  }, []);
+
+  const seek = useCallback((seconds: number) => {
+    if (!playerRef.current) return;
+    try {
+      const target = Math.max(0, seconds);
+      playerRef.current.seekTo(target);
+      setCurrentTime(target);
+    } catch (err) {
+      console.warn('[useAudioPlayer] seek error:', err);
+    }
+  }, []);
 
   const playTrack = useCallback(
-    async (track: Track, context: PlaybackContext = 'All', queue: Track[] = []) => {
+    async (track: Track, context: PlaybackContext = 'All', newQueue?: Track[]) => {
+      if (!track || !track.fileUri) return;
+
+      if (isTransitioningRef.current) {
+        playRequestIdRef.current++;
+      }
+      isTransitioningRef.current = true;
+      const currentRequestId = ++playRequestIdRef.current;
+
       try {
+        safeTearDownCurrentPlayer();
+
+        setCurrentTrack(track);
         setPlaybackContext(context);
-        if (queue.length > 0) {
-          activeQueueRef.current = queue;
+        if (newQueue && newQueue.length > 0) {
+          setQueue(newQueue);
+          queueRef.current = newQueue;
         }
 
-        // Release previous player instance if active
-        if (playerRef.current) {
-          try {
-            if (typeof playerRef.current.setActiveForLockScreen === 'function') {
-              playerRef.current.setActiveForLockScreen(false);
-            }
-            if (typeof playerRef.current.remove === 'function') {
-              playerRef.current.remove();
-            } else if (typeof playerRef.current.release === 'function') {
-              playerRef.current.release();
-            }
-          } catch {}
-          playerRef.current = null;
+        const fallbackDur = track.duration && track.duration > 0 ? track.duration : 0;
+        setDuration(fallbackDur);
+        setCurrentTime(0);
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+
+        await configureBackgroundAudio();
+
+        if (currentRequestId !== playRequestIdRef.current) {
+          isTransitioningRef.current = false;
+          return;
         }
 
-        const newPlayer: any = createAudioPlayer({ uri: track.fileUri });
-
-        if (typeof newPlayer.setActiveForLockScreen === 'function') {
-          newPlayer.setActiveForLockScreen(true);
-        }
-
-        if (typeof newPlayer.addListener === 'function') {
-          newPlayer.addListener('playbackStatusUpdate', (status: any) => {
-            setIsPlaying(Boolean(status?.playing));
-            setCurrentTime(Math.floor(status?.currentTime || 0));
-            setDuration(Math.floor(status?.duration || 0));
-
-            if (status?.didJustFinish) {
-              const mode = repeatModeRef.current;
-              if (mode === 'one') {
-                newPlayer.seekTo(0);
-                newPlayer.play();
-              } else if (mode === 'all') {
-                nextTrackRef.current();
-              } else {
-                setIsPlaying(false);
-                newPlayer.seekTo(0);
-              }
-            }
-          });
-        }
+        // Initialize AudioPlayer with updateInterval for native scrubber updates
+        const newPlayer = createAudioPlayer(
+          { uri: track.fileUri },
+          { updateInterval: 1000 } as any
+        );
 
         playerRef.current = newPlayer;
-        setCurrentTrack(track);
-        currentTrackRef.current = track;
+
+        // Native Lock Screen MediaSession registration matching your working implementation
+        if (typeof (newPlayer as any).setActiveForLockScreen === 'function') {
+          try {
+            (newPlayer as any).setActiveForLockScreen(
+              true,
+              {
+                title: track.title,
+                artist: track.artist,
+                artworkUrl: track.thumbnailUrl || undefined,
+              },
+              {
+                showNextTrack: true,
+                showPreviousTrack: true,
+                // showSeekForward: true,
+                // showSeekBackward: true,
+              }
+            );
+          } catch {
+            (newPlayer as any).setActiveForLockScreen(true);
+          }
+        }
+
+        // Remote action listeners for lock screen transport buttons
+        if (typeof (newPlayer as any).addListener === 'function') {
+          try {
+            (newPlayer as any).addListener('onRemoteNextTrack', () => {
+              nextTrackRef.current();
+            });
+            (newPlayer as any).addListener('onRemotePreviousTrack', () => {
+              prevTrackRef.current();
+            });
+          } catch {}
+        }
+
+        const handleStatus = (status: any) => {
+          if (playerRef.current !== newPlayer || currentRequestId !== playRequestIdRef.current) {
+            return;
+          }
+
+          const isNowPlaying = Boolean(status?.playing);
+          setIsPlaying(isNowPlaying);
+          isPlayingRef.current = isNowPlaying;
+
+          const rawTime = status?.currentTime ?? newPlayer?.currentTime ?? 0;
+          const rawDur = status?.duration ?? newPlayer?.duration ?? 0;
+
+          const timeSec = rawTime > 1000 && (rawDur ? rawDur > 1000 : true) ? rawTime / 1000 : rawTime;
+          const durSec = rawDur > 1000 ? rawDur / 1000 : rawDur;
+
+          setCurrentTime(timeSec);
+
+          if (durSec > 0) {
+            setDuration(durSec);
+            if (!track.duration || track.duration <= 0 || !track.durationFormatted || track.durationFormatted === '--:--') {
+              track.duration = Math.floor(durSec);
+              const m = Math.floor(durSec / 60);
+              const s = Math.floor(durSec % 60);
+              track.durationFormatted = `${m}:${s.toString().padStart(2, '0')}`;
+              updateTrackDuration(track.id, Math.floor(durSec));
+            }
+          } else if (track.duration && track.duration > 0) {
+            setDuration(track.duration);
+          }
+
+          if (status?.didJustFinish) {
+            handleTrackDidFinish();
+          }
+        };
+
+        if (typeof newPlayer.addListener === 'function') {
+          statusSubscriptionRef.current = newPlayer.addListener('playbackStatusUpdate', handleStatus);
+        }
 
         newPlayer.play();
         setIsPlaying(true);
+        isPlayingRef.current = true;
       } catch (err) {
-        console.error('[AudioPlayer] Failed to load and play track:', err);
+        console.error('[useAudioPlayer] playTrack critical error:', err);
+      } finally {
+        isTransitioningRef.current = false;
       }
     },
-    []
+    [safeTearDownCurrentPlayer]
   );
 
-  const togglePlay = useCallback(() => {
-    const p = playerRef.current;
-    if (!p) return;
-
-    if (isPlaying) {
-      p.pause();
-      setIsPlaying(false);
-    } else {
-      p.play();
-      setIsPlaying(true);
+  const handleTrackDidFinish = useCallback(() => {
+    if (repeatModeRef.current === 'one') {
+      if (playerRef.current) {
+        try {
+          playerRef.current.seekTo(0);
+          playerRef.current.play();
+          setIsPlaying(true);
+          isPlayingRef.current = true;
+        } catch {}
+      }
+      return;
     }
-  }, [isPlaying]);
 
-  const seek = useCallback((seconds: number) => {
-    const p = playerRef.current;
-    if (!p) return;
+    const currentList = queueRef.current;
+    const current = currentTrackRef.current;
+    if (!currentList.length || !current) return;
 
-    p.seekTo(seconds);
-    setCurrentTime(seconds);
-  }, []);
+    const currentIndex = currentList.findIndex((t) => t.id === current.id);
+    let nextIndex = currentIndex + 1;
+
+    if (nextIndex >= currentList.length) {
+      if (repeatModeRef.current === 'all') {
+        nextIndex = 0;
+      } else {
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        return;
+      }
+    }
+
+    const nextTrackItem = currentList[nextIndex];
+    if (nextTrackItem) {
+      playTrack(nextTrackItem, playbackContext, currentList);
+    }
+  }, [playTrack, playbackContext]);
 
   const nextTrack = useCallback(() => {
-    const queue = activeQueueRef.current;
-    const track = currentTrackRef.current;
-    if (!queue.length || !track) return;
+    if (isTransitioningRef.current) return;
 
-    const currentIndex = queue.findIndex((t) => t.id === track.id);
-    if (currentIndex === -1) return;
+    const list = queueRef.current;
+    const current = currentTrackRef.current;
+    if (!list.length || !current) return;
 
-    if (currentIndex < queue.length - 1) {
-      playTrack(queue[currentIndex + 1], playbackContext, queue);
-    } else {
-      playTrack(queue[0], playbackContext, queue);
+    if (repeatModeRef.current === 'one') {
+      if (playerRef.current) {
+        try {
+          playerRef.current.seekTo(0);
+          playerRef.current.play();
+          setIsPlaying(true);
+          isPlayingRef.current = true;
+        } catch {}
+      }
+      return;
     }
-  }, [playbackContext, playTrack]);
+
+    const currentIndex = list.findIndex((t) => t.id === current.id);
+    let nextIndex = currentIndex + 1;
+
+    if (nextIndex >= list.length) {
+      if (repeatModeRef.current === 'all') {
+        nextIndex = 0;
+      } else {
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        return;
+      }
+    }
+
+    const target = list[nextIndex];
+    if (target) {
+      playTrack(target, playbackContext, list);
+    }
+  }, [playTrack, playbackContext]);
 
   useEffect(() => {
     nextTrackRef.current = nextTrack;
   }, [nextTrack]);
 
   const prevTrack = useCallback(() => {
-    const queue = activeQueueRef.current;
-    const track = currentTrackRef.current;
-    const p = playerRef.current;
-    if (!queue.length || !track) return;
+    if (isTransitioningRef.current) return;
 
-    if (p && currentTime > 3) {
-      p.seekTo(0);
-      setCurrentTime(0);
+    const list = queueRef.current;
+    const current = currentTrackRef.current;
+    if (!list.length || !current) return;
+
+    if (currentTime > 3) {
+      if (playerRef.current) {
+        try {
+          playerRef.current.seekTo(0);
+          setCurrentTime(0);
+        } catch {}
+      }
       return;
     }
 
-    const currentIndex = queue.findIndex((t) => t.id === track.id);
-    if (currentIndex > 0) {
-      playTrack(queue[currentIndex - 1], playbackContext, queue);
-    } else {
-      playTrack(queue[queue.length - 1], playbackContext, queue);
+    const currentIndex = list.findIndex((t) => t.id === current.id);
+    let prevIndex = currentIndex - 1;
+
+    if (prevIndex < 0) {
+      prevIndex = repeatModeRef.current === 'all' ? list.length - 1 : 0;
     }
-  }, [playbackContext, playTrack, currentTime]);
+
+    const target = list[prevIndex];
+    if (target) {
+      playTrack(target, playbackContext, list);
+    }
+  }, [currentTime, playTrack, playbackContext]);
+
+  useEffect(() => {
+    prevTrackRef.current = prevTrack;
+  }, [prevTrack]);
 
   const toggleRepeat = useCallback(() => {
     setRepeatMode((prev) => {
-      let next: RepeatMode = 'off';
-      if (prev === 'off') next = 'all';
-      else if (prev === 'all') next = 'one';
-      else next = 'off';
-      repeatModeRef.current = next;
-      return next;
+      if (prev === 'off') return 'all';
+      if (prev === 'all') return 'one';
+      return 'off';
+    });
+  }, []);
+
+  const toggleShuffle = useCallback(() => {
+    setIsShuffle((prev) => {
+      const nextVal = !prev;
+      if (nextVal) {
+        const shuffled = [...queueRef.current].sort(() => Math.random() - 0.5);
+        setQueue(shuffled);
+      } else {
+        setQueue(queueRef.current);
+      }
+      return nextVal;
     });
   }, []);
 
   const stopTrack = useCallback(() => {
-    if (playerRef.current) {
-      try {
-        if (typeof playerRef.current.setActiveForLockScreen === 'function') {
-          playerRef.current.setActiveForLockScreen(false);
-        }
-        playerRef.current.pause();
-        if (typeof playerRef.current.remove === 'function') {
-          playerRef.current.remove();
-        } else if (typeof playerRef.current.release === 'function') {
-          playerRef.current.release();
-        }
-      } catch {}
-      playerRef.current = null;
-    }
+    safeTearDownCurrentPlayer();
     setCurrentTrack(null);
-    currentTrackRef.current = null;
     setIsPlaying(false);
+    isPlayingRef.current = false;
     setCurrentTime(0);
     setDuration(0);
-  }, []);
+  }, [safeTearDownCurrentPlayer]);
 
   const updatePlaybackContext = useCallback(
-    (context: PlaybackContext, queue: Track[]) => {
+    (context: PlaybackContext, updatedQueue: Track[]) => {
       setPlaybackContext(context);
-      activeQueueRef.current = queue;
+      setQueue(updatedQueue);
     },
     []
   );
@@ -229,6 +402,7 @@ export const useAudioPlayer = () => {
     currentTime,
     duration,
     repeatMode,
+    isShuffle,
     playbackContext,
     playTrack,
     togglePlay,
@@ -236,7 +410,8 @@ export const useAudioPlayer = () => {
     nextTrack,
     prevTrack,
     toggleRepeat,
+    toggleShuffle,
     stopTrack,
     updatePlaybackContext,
   };
-};
+}

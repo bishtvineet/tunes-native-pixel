@@ -1,6 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Track } from '../types';
+import { formatDuration } from '../utils/audio';
 
 const TRACKS_METADATA_KEY = 'tunes_native_tracks_meta';
 const FAVORITES_KEY = 'tunes_favorites';
@@ -22,6 +23,10 @@ export const getTrackFilePath = (trackId: string): string => {
   return `${TRACKS_DIR}${trackId}.mp3`;
 };
 
+export const getTrackArtworkPath = (trackId: string): string => {
+  return `${TRACKS_DIR}${trackId}.jpg`;
+};
+
 export const getAllTracks = async (): Promise<Track[]> => {
   try {
     const [rawTracks, rawFavs] = await Promise.all([
@@ -35,10 +40,19 @@ export const getAllTracks = async (): Promise<Track[]> => {
     const favSet = new Set<string>(rawFavs ? JSON.parse(rawFavs) : []);
 
     return list
-      .map((track) => ({
-        ...track,
-        isFavorite: favSet.has(track.id),
-      }))
+      .map((track) => {
+        // Self-heal previously saved tracks that have '--:--' or missing duration formatting
+        let formatted = track.durationFormatted;
+        if ((!formatted || formatted === '--:--') && track.duration && track.duration > 0) {
+          formatted = formatDuration(track.duration);
+        }
+
+        return {
+          ...track,
+          durationFormatted: formatted || '--:--',
+          isFavorite: favSet.has(track.id),
+        };
+      })
       .sort((a, b) => b.createdAt - a.createdAt);
   } catch (err) {
     console.error('[Storage] Failed to fetch tracks:', err);
@@ -78,19 +92,26 @@ export const deleteTrack = async (id: string): Promise<void> => {
     const existing = await getAllTracks();
     const trackToDelete = existing.find((t) => t.id === id);
 
-    // 1. Delete physical audio file from device storage
-    if (trackToDelete && trackToDelete.fileUri) {
-      const fileInfo = await FileSystem.getInfoAsync(trackToDelete.fileUri);
-      if (fileInfo.exists) {
-        await FileSystem.deleteAsync(trackToDelete.fileUri, { idempotent: true });
+    if (trackToDelete) {
+      // 1. Delete local audio file
+      if (trackToDelete.fileUri) {
+        const fileInfo = await FileSystem.getInfoAsync(trackToDelete.fileUri);
+        if (fileInfo.exists) {
+          await FileSystem.deleteAsync(trackToDelete.fileUri, { idempotent: true });
+        }
+      }
+      // 2. Delete local artwork image file if stored on disk
+      if (trackToDelete.thumbnailUrl && trackToDelete.thumbnailUrl.startsWith('file://')) {
+        const thumbInfo = await FileSystem.getInfoAsync(trackToDelete.thumbnailUrl);
+        if (thumbInfo.exists) {
+          await FileSystem.deleteAsync(trackToDelete.thumbnailUrl, { idempotent: true });
+        }
       }
     }
 
-    // 2. Remove metadata from AsyncStorage
     const remaining = existing.filter((t) => t.id !== id);
     await AsyncStorage.setItem(TRACKS_METADATA_KEY, JSON.stringify(remaining));
 
-    // 3. Clean up favorite entry if present
     const rawFavs = await AsyncStorage.getItem(FAVORITES_KEY);
     if (rawFavs) {
       const favs: string[] = JSON.parse(rawFavs);
@@ -128,7 +149,12 @@ export const pruneStaleStorage = async (): Promise<{ freedBytes: number; prunedC
   try {
     await ensureDirectoryExists();
     const tracks = await getAllTracks();
-    const validPaths = new Set(tracks.map((t) => t.fileUri));
+    const validFilePaths = new Set(tracks.map((t) => t.fileUri));
+    tracks.forEach((t) => {
+      if (t.thumbnailUrl && t.thumbnailUrl.startsWith('file://')) {
+        validFilePaths.add(t.thumbnailUrl);
+      }
+    });
 
     const files = await FileSystem.readDirectoryAsync(TRACKS_DIR);
     let freedBytes = 0;
@@ -136,7 +162,7 @@ export const pruneStaleStorage = async (): Promise<{ freedBytes: number; prunedC
 
     for (const file of files) {
       const fullPath = `${TRACKS_DIR}${file}`;
-      if (!validPaths.has(fullPath)) {
+      if (!validFilePaths.has(fullPath)) {
         const info = await FileSystem.getInfoAsync(fullPath);
         if (info.exists) {
           freedBytes += info.size || 0;
@@ -149,5 +175,80 @@ export const pruneStaleStorage = async (): Promise<{ freedBytes: number; prunedC
     return { freedBytes, prunedCount };
   } catch {
     return { freedBytes: 0, prunedCount: 0 };
+  }
+};
+
+export const updateTrackDuration = async (
+  trackId: string,
+  durationSeconds: number
+): Promise<void> => {
+  try {
+    if (!trackId || !durationSeconds || durationSeconds <= 0) return;
+
+    const raw = await AsyncStorage.getItem(TRACKS_METADATA_KEY);
+    if (!raw) return;
+
+    const tracks: Track[] = JSON.parse(raw);
+    let hasChanged = false;
+
+    const totalSecs = Math.floor(durationSeconds);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    const formatted = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+    const updated = tracks.map((t) => {
+      if (t.id === trackId) {
+        if (!t.duration || t.duration <= 0 || !t.durationFormatted || t.durationFormatted === '--:--') {
+          hasChanged = true;
+          return {
+            ...t,
+            duration: totalSecs,
+            durationFormatted: formatted,
+          };
+        }
+      }
+      return t;
+    });
+
+    if (hasChanged) {
+      await AsyncStorage.setItem(TRACKS_METADATA_KEY, JSON.stringify(updated));
+    }
+  } catch (err) {
+    console.warn('[Storage] Failed to persist detected track duration:', err);
+  }
+};
+
+export const findDuplicateTrack = async (preview: {
+  id?: string;
+  title?: string;
+  channel?: string;
+  thumbnail?: string;
+}): Promise<Track | null> => {
+  try {
+    const tracks = await getAllTracks();
+    const cleanTitle = (preview.title || '').trim().toLowerCase();
+    const cleanChannel = (preview.channel || '').trim().toLowerCase();
+
+    for (const t of tracks) {
+      // 1. Direct ID match
+      if (preview.id && t.id === preview.id) {
+        return t;
+      }
+      // 2. Direct Thumbnail match
+      if (preview.thumbnail && t.thumbnailUrl && t.thumbnailUrl === preview.thumbnail) {
+        return t;
+      }
+      // 3. Title + Channel / Artist match (ignoring duration)
+      if (cleanTitle && cleanChannel) {
+        const tTitle = (t.title || '').trim().toLowerCase();
+        const tArtist = (t.artist || '').trim().toLowerCase();
+        if (tTitle === cleanTitle && tArtist === cleanChannel) {
+          return t;
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 };

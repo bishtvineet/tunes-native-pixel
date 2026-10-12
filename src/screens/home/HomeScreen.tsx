@@ -1,29 +1,33 @@
-import React from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
+  TextInput,
   ScrollView,
-  TouchableOpacity,
   Image,
   StyleSheet,
   Dimensions,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../../components/common/Icon';
 import { SongCard } from '../../components/cards/SongCard';
+import { M3Pressable } from '../../components/common/M3Pressable';
 import type { Track, PlaybackContext } from '../../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH * 0.72;
+const CAROUSEL_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.52, 200);
 
 interface HomeScreenProps {
   tracks: Track[];
   currentTrack: Track | null;
   isPlaying: boolean;
   onPlayTrack: (track: Track, context: PlaybackContext, queue: Track[]) => void;
+  onTogglePlay: () => void;
   onToggleFavorite: (id: string) => void;
   onDeleteTrack: (id: string) => void;
-  onNavigateTab: (tab: 'Search' | 'Library') => void;
+  onNavigateTab: (tab: 'Download' | 'Library') => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -31,15 +35,57 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   currentTrack,
   isPlaying,
   onPlayTrack,
+  onTogglePlay,
   onToggleFavorite,
   onDeleteTrack,
   onNavigateTab,
 }) => {
   const { tokens, shapes } = useTheme();
 
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<TextInput>(null);
+
+  const morphProgress = useRef(new Animated.Value(0)).current;
+
   const favoriteTracks = tracks.filter((t) => t.isFavorite);
-  const recentTracks = tracks.slice(0, 5);
-  const featuredTracks = tracks.slice(0, 4);
+  const recentTracks = tracks.slice(0, 6);
+  const featuredTracks = tracks.slice(0, 6);
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    return tracks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q)
+    );
+  }, [tracks, searchQuery]);
+
+  const openSearch = () => {
+    setIsSearchOpen(true);
+    Animated.timing(morphProgress, {
+      toValue: 1,
+      duration: 280,
+      easing: Easing.bezier(0.2, 0.0, 0.0, 1.0),
+      useNativeDriver: false,
+    }).start(() => {
+      searchInputRef.current?.focus();
+    });
+  };
+
+  const closeSearch = () => {
+    searchInputRef.current?.blur();
+    Animated.timing(morphProgress, {
+      toValue: 0,
+      duration: 220,
+      easing: Easing.bezier(0.4, 0.0, 1.0, 1.0),
+      useNativeDriver: false,
+    }).start(() => {
+      setIsSearchOpen(false);
+      setSearchQuery('');
+    });
+  };
 
   const handleShuffleAll = () => {
     if (tracks.length === 0) return;
@@ -47,331 +93,528 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     onPlayTrack(shuffled[0], 'All', shuffled);
   };
 
+  const handleTrackCardPress = (track: Track) => {
+    if (currentTrack?.id === track.id) {
+      onTogglePlay();
+    } else {
+      onPlayTrack(track, 'All', tracks);
+    }
+  };
+
+  const titleOpacity = morphProgress.interpolate({
+    inputRange: [0, 0.35],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const searchPillOpacity = morphProgress.interpolate({
+    inputRange: [0.15, 1],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
+  const searchPillScale = morphProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.94, 1],
+    extrapolate: 'clamp',
+  });
+
+  const iconRotation = morphProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '90deg'],
+  });
+
   return (
     <ScrollView
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
     >
-      {/* 1. Header Hero Greeting */}
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={[styles.welcomeText, { color: tokens.onSurfaceVariant }]}>
-            Offline Audio
-          </Text>
-          <Text style={[styles.mainHeading, { color: tokens.onSurface }]}>
-            PixelMusic
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          onPress={() => onNavigateTab('Search')}
-          style={[
-            styles.headerActionPill,
-            {
-              backgroundColor: tokens.primaryContainer,
-              borderRadius: shapes.pill,
-            },
-          ]}
+      {/* ─── 1. Header with Material 3 Morph ─── */}
+      <View style={styles.headerRegion}>
+        <Animated.View
+          style={[styles.defaultHeaderRow, { opacity: titleOpacity }]}
+          pointerEvents={isSearchOpen ? 'none' : 'auto'}
         >
-          <Icon name="search" size={16} color={tokens.primary} />
-          <Text style={[styles.headerActionText, { color: tokens.primary }]}>
-            Download
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <View>
+            <Text style={[styles.welcomeBadge, { color: tokens.onSurfaceVariant }]}>
+              OFFLINE MUSIC
+            </Text>
+            <Text style={[styles.mainBrandTitle, { color: tokens.onSurface }]}>
+              LaviMusic
+            </Text>
+          </View>
 
-      {/* 2. Quick Action Chips */}
-      <View style={styles.chipRow}>
-        <TouchableOpacity
-          onPress={handleShuffleAll}
-          disabled={tracks.length === 0}
-          style={[
-            styles.quickChip,
-            {
-              backgroundColor: tokens.surfaceVariant,
-              borderRadius: shapes.pill,
-              opacity: tracks.length === 0 ? 0.5 : 1,
-            },
-          ]}
-        >
-          <Icon name="shuffle" size={16} color={tokens.primary} />
-          <Text style={[styles.quickChipText, { color: tokens.onSurface }]}>
-            Shuffle All
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => onNavigateTab('Library')}
-          style={[
-            styles.quickChip,
-            {
-              backgroundColor: tokens.surfaceVariant,
-              borderRadius: shapes.pill,
-            },
-          ]}
-        >
-          <Icon name="heart-filled" size={16} color={tokens.accentPink} />
-          <Text style={[styles.quickChipText, { color: tokens.onSurface }]}>
-            Favorites ({favoriteTracks.length})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 3. Daily Discover Carousel Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: tokens.onSurface }]}>
-          Daily Discover
-        </Text>
-        <Text style={[styles.sectionSubtitle, { color: tokens.onSurfaceVariant }]}>
-          Recommended offline tracks
-        </Text>
-      </View>
-
-      {featuredTracks.length === 0 ? (
-        <View
-          style={[
-            styles.emptyHeroCard,
-            {
-              backgroundColor: tokens.surfaceVariant,
-              borderRadius: shapes.lg,
-            },
-          ]}
-        >
-          <Icon name="library" size={40} color={tokens.outline} />
-          <Text style={[styles.emptyHeroTitle, { color: tokens.onSurface }]}>
-            Your library is empty
-          </Text>
-          <Text style={[styles.emptyHeroSubtitle, { color: tokens.onSurfaceVariant }]}>
-            Search and download tracks from YouTube to play offline.
-          </Text>
-          <TouchableOpacity
-            onPress={() => onNavigateTab('Search')}
+          <M3Pressable
+            onPress={openSearch}
             style={[
-              styles.emptyHeroBtn,
+              styles.headerSearchCircle,
               {
-                backgroundColor: tokens.primary,
+                backgroundColor: tokens.surfaceVariant,
                 borderRadius: shapes.pill,
+                borderColor: tokens.outline,
               },
             ]}
           >
-            <Text style={styles.emptyHeroBtnText}>Add Music Now</Text>
-          </TouchableOpacity>
+            <Icon name="search" size={20} color={tokens.primary} />
+          </M3Pressable>
+        </Animated.View>
+
+        <Animated.View
+          style={[
+            styles.m3SearchPill,
+            {
+              opacity: searchPillOpacity,
+              transform: [{ scale: searchPillScale }],
+              backgroundColor: tokens.surface,
+              borderRadius: shapes.pill,
+              borderColor: tokens.primary,
+            },
+          ]}
+          pointerEvents={isSearchOpen ? 'auto' : 'none'}
+        >
+          <View style={styles.leadingSearchIcon}>
+            <Icon name="search" size={18} color={tokens.primary} />
+          </View>
+
+          <TextInput
+            ref={searchInputRef}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search offline tracks..."
+            placeholderTextColor={tokens.onSurfaceVariant}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            style={[styles.m3SearchInput, { color: tokens.onSurface }]}
+          />
+
+          <M3Pressable
+            onPress={closeSearch}
+            style={[
+              styles.trailingCloseBtn,
+              { backgroundColor: tokens.surfaceVariant, borderRadius: shapes.pill },
+            ]}
+          >
+            <Animated.View style={{ transform: [{ rotate: iconRotation }] }}>
+              <Icon name="close" size={16} color={tokens.primary} />
+            </Animated.View>
+          </M3Pressable>
+        </Animated.View>
+      </View>
+
+      {/* ─── 2. Search Live Results View ─── */}
+      {isSearchOpen && searchQuery.trim().length > 0 ? (
+        <View style={styles.searchResultsSection}>
+          <View style={styles.resultsHeaderRow}>
+            <Text style={[styles.resultsLabel, { color: tokens.onSurfaceVariant }]}>
+              MATCHING SONGS ({searchResults.length})
+            </Text>
+          </View>
+
+          {searchResults.length === 0 ? (
+            <View
+              style={[
+                styles.noMatchCard,
+                { backgroundColor: tokens.surface, borderRadius: shapes.md },
+              ]}
+            >
+              <Icon name="library" size={32} color={tokens.outline} />
+              <Text style={[styles.noMatchText, { color: tokens.onSurfaceVariant }]}>
+                No offline tracks match "{searchQuery}"
+              </Text>
+            </View>
+          ) : (
+            searchResults.map((track) => (
+              <SongCard
+                key={track.id}
+                song={track}
+                isPlaying={currentTrack?.id === track.id && isPlaying}
+                onPress={() => {
+                  handleTrackCardPress(track);
+                  closeSearch();
+                }}
+                onToggleFavorite={() => onToggleFavorite(track.id)}
+                onDelete={() => onDeleteTrack(track.id)}
+              />
+            ))
+          )}
         </View>
       ) : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.carouselContainer}
-        >
-          {featuredTracks.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              activeOpacity={0.85}
-              onPress={() => onPlayTrack(item, 'All', tracks)}
+        <>
+          {/* ─── 3. Quick Action Chips with M3 Press ─── */}
+          <View style={styles.chipRow}>
+            <M3Pressable
+              onPress={handleShuffleAll}
               style={[
-                styles.carouselCard,
+                styles.quickChip,
                 {
-                  width: CAROUSEL_CARD_WIDTH,
-                  backgroundColor: tokens.surfaceVariant,
-                  borderRadius: shapes.lg,
+                  backgroundColor: tokens.surface,
+                  borderRadius: shapes.pill,
+                  borderColor: tokens.outline,
+                  opacity: tracks.length === 0 ? 0.45 : 1,
                 },
               ]}
             >
-              <View style={[styles.carouselImageWrapper, { borderRadius: shapes.md }]}>
-                {item.thumbnailUrl ? (
-                  <Image source={{ uri: item.thumbnailUrl }} style={styles.carouselImage} />
-                ) : (
-                  <View style={[styles.carouselPlaceholder, { backgroundColor: tokens.primaryContainer }]}>
-                    <Icon name="library" size={32} color={tokens.primary} />
-                  </View>
-                )}
-                <View style={styles.carouselPlayOverlay}>
-                  <View
+              <Icon name="shuffle" size={15} color={tokens.primary} />
+              <Text style={[styles.quickChipText, { color: tokens.onSurface }]}>
+                Shuffle All
+              </Text>
+            </M3Pressable>
+
+            <M3Pressable
+              onPress={() => onNavigateTab('Library')}
+              style={[
+                styles.quickChip,
+                {
+                  backgroundColor: tokens.surface,
+                  borderRadius: shapes.pill,
+                  borderColor: tokens.outline,
+                },
+              ]}
+            >
+              <Icon name="heart-filled" size={15} color={tokens.accentPink} />
+              <Text style={[styles.quickChipText, { color: tokens.onSurface }]}>
+                Favorites ({favoriteTracks.length})
+              </Text>
+            </M3Pressable>
+          </View>
+
+          {/* ─── 4. Daily Discover Carousel ─── */}
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: tokens.onSurface }]}>
+              Daily Discover
+            </Text>
+            <Text style={[styles.sectionSubtitle, { color: tokens.onSurfaceVariant }]}>
+              Curated from your downloads
+            </Text>
+          </View>
+
+          {featuredTracks.length === 0 ? (
+            <View
+              style={[
+                styles.emptyDiscoverBox,
+                {
+                  backgroundColor: tokens.surface,
+                  borderRadius: shapes.lg,
+                  borderColor: tokens.outline,
+                },
+              ]}
+            >
+              <Icon name="library" size={40} color={tokens.primary} />
+              <Text style={[styles.emptyDiscoverTitle, { color: tokens.onSurface }]}>
+                No offline audio yet
+              </Text>
+              <Text style={[styles.emptyDiscoverSub, { color: tokens.onSurfaceVariant }]}>
+                Tap the Download tab to download and listen to YouTube tracks offline.
+              </Text>
+              <M3Pressable
+                onPress={() => onNavigateTab('Download')}
+                style={[
+                  styles.emptyDiscoverBtn,
+                  { backgroundColor: tokens.primary, borderRadius: shapes.pill },
+                ]}
+              >
+                <Text style={styles.emptyDiscoverBtnText}>Download Track</Text>
+              </M3Pressable>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.carouselContainer}
+            >
+              {featuredTracks.map((item) => {
+                const isThisTrack = currentTrack?.id === item.id;
+                const isThisPlaying = isThisTrack && isPlaying;
+
+                return (
+                  <M3Pressable
+                    key={item.id}
+                    onPress={() => handleTrackCardPress(item)}
                     style={[
-                      styles.carouselPlayPip,
-                      { backgroundColor: tokens.primary, borderRadius: shapes.pill },
+                      styles.carouselCard,
+                      {
+                        width: CAROUSEL_CARD_WIDTH,
+                        backgroundColor: tokens.surface,
+                        borderRadius: shapes.lg,
+                        borderColor: isThisTrack ? tokens.primary : tokens.outline,
+                      },
                     ]}
                   >
-                    <Icon
-                      name={currentTrack?.id === item.id && isPlaying ? 'pause' : 'play'}
-                      size={18}
-                      color="#FFFFFF"
-                    />
-                  </View>
-                </View>
-              </View>
+                    <View
+                      style={[
+                        styles.carouselArtWrapper,
+                        {
+                          borderRadius: shapes.md,
+                          backgroundColor: tokens.surfaceVariant,
+                        },
+                      ]}
+                    >
+                      {item.thumbnailUrl ? (
+                        <Image source={{ uri: item.thumbnailUrl }} style={styles.fullImage} />
+                      ) : (
+                        <View style={styles.fallbackArt}>
+                          <Icon name="library" size={32} color={tokens.primary} />
+                        </View>
+                      )}
 
-              <Text numberOfLines={1} style={[styles.carouselTitle, { color: tokens.onSurface }]}>
-                {item.title}
-              </Text>
-              <Text numberOfLines={1} style={[styles.carouselArtist, { color: tokens.onSurfaceVariant }]}>
-                {item.artist} • {item.durationFormatted}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+                      <M3Pressable
+                        onPress={() => handleTrackCardPress(item)}
+                        style={[
+                          styles.playPipContainer,
+                          {
+                            backgroundColor: tokens.primary,
+                            borderRadius: shapes.pill,
+                          },
+                        ]}
+                      >
+                        <Icon
+                          name={isThisPlaying ? 'pause' : 'play'}
+                          size={16}
+                          color="#FFFFFF"
+                        />
+                      </M3Pressable>
+                    </View>
+
+                    <View style={styles.carouselMeta}>
+                      <Text numberOfLines={1} style={[styles.carouselTitle, { color: tokens.onSurface }]}>
+                        {item.title}
+                      </Text>
+                      <Text numberOfLines={1} style={[styles.carouselSubtitle, { color: tokens.onSurfaceVariant }]}>
+                        {item.artist}
+                      </Text>
+                    </View>
+                  </M3Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {/* ─── 5. Recently Added Tracks ─── */}
+          <View style={[styles.sectionHeader, { marginTop: 22 }]}>
+            <Text style={[styles.sectionTitle, { color: tokens.onSurface }]}>
+              Recently Added
+            </Text>
+            <M3Pressable onPress={() => onNavigateTab('Library')}>
+              <Text style={[styles.seeAllLink, { color: tokens.primary }]}>View Library</Text>
+            </M3Pressable>
+          </View>
+
+          <View style={styles.recentList}>
+            {recentTracks.map((track) => (
+              <SongCard
+                key={track.id}
+                song={track}
+                isPlaying={currentTrack?.id === track.id && isPlaying}
+                onPress={() => handleTrackCardPress(track)}
+                onToggleFavorite={() => onToggleFavorite(track.id)}
+                onDelete={() => onDeleteTrack(track.id)}
+              />
+            ))}
+          </View>
+        </>
       )}
-
-      {/* 4. Recent Offline Additions */}
-      <View style={[styles.sectionHeader, { marginTop: 24 }]}>
-        <Text style={[styles.sectionTitle, { color: tokens.onSurface }]}>
-          Recently Added
-        </Text>
-        <TouchableOpacity onPress={() => onNavigateTab('Library')}>
-          <Text style={[styles.seeAllText, { color: tokens.primary }]}>View Library</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.recentList}>
-        {recentTracks.map((track) => (
-          <SongCard
-            key={track.id}
-            song={track}
-            isPlaying={currentTrack?.id === track.id && isPlaying}
-            onPress={() => onPlayTrack(track, 'All', tracks)}
-            onToggleFavorite={() => onToggleFavorite(track.id)}
-            onDelete={() => onDeleteTrack(track.id)}
-          />
-        ))}
-      </View>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 160,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 150,
   },
-  headerRow: {
+  headerRegion: {
+    height: 52,
+    marginBottom: 14,
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  defaultHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    width: '100%',
   },
-  welcomeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  mainHeading: {
-    fontSize: 26,
+  welcomeBadge: {
+    fontSize: 10,
     fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  mainBrandTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: -0.5,
     marginTop: 2,
   },
-  headerActionPill: {
+  headerSearchCircle: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  m3SearchPill: {
+    ...StyleSheet.absoluteFill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    paddingHorizontal: 12,
+    zIndex: 10,
+  },
+  leadingSearchIcon: {
+    marginRight: 8,
+  },
+  m3SearchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    paddingVertical: 0,
+  },
+  trailingCloseBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  searchResultsSection: {
+    marginTop: 4,
+    gap: 4,
+  },
+  resultsHeaderRow: {
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  resultsLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  noMatchCard: {
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  noMatchText: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 18,
+  },
+  quickChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
-  },
-  headerActionText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  chipRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-  quickChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderWidth: 1.5,
   },
   quickChipText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   sectionSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 2,
   },
-  seeAllText: {
+  seeAllLink: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   carouselContainer: {
-    gap: 14,
-    paddingRight: 20,
+    gap: 12,
+    paddingRight: 16,
   },
   carouselCard: {
-    padding: 12,
+    padding: 8,
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  carouselImageWrapper: {
+  carouselArtWrapper: {
     width: '100%',
-    height: 140,
+    height: 116,
     overflow: 'hidden',
     position: 'relative',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  carouselImage: {
+  fullImage: {
     width: '100%',
     height: '100%',
   },
-  carouselPlaceholder: {
+  fallbackArt: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  carouselPlayOverlay: {
+  playPipContainer: {
     position: 'absolute',
-    right: 10,
-    bottom: 10,
-  },
-  carouselPlayPip: {
-    width: 36,
-    height: 36,
+    right: 8,
+    bottom: 8,
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
+    elevation: 5,
+  },
+  carouselMeta: {
+    paddingHorizontal: 2,
+    paddingBottom: 2,
   },
   carouselTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
-  carouselArtist: {
-    fontSize: 12,
+  carouselSubtitle: {
+    fontSize: 11,
     marginTop: 2,
   },
-  emptyHeroCard: {
-    padding: 24,
+  emptyDiscoverBox: {
+    padding: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1.5,
   },
-  emptyHeroTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+  emptyDiscoverTitle: {
+    fontSize: 15,
+    fontWeight: '800',
     marginTop: 10,
   },
-  emptyHeroSubtitle: {
-    fontSize: 12,
+  emptyDiscoverSub: {
+    fontSize: 11,
     textAlign: 'center',
     maxWidth: 240,
     marginTop: 4,
-    lineHeight: 18,
+    lineHeight: 16,
   },
-  emptyHeroBtn: {
-    marginTop: 16,
-    paddingHorizontal: 20,
+  emptyDiscoverBtn: {
+    marginTop: 14,
+    paddingHorizontal: 18,
     paddingVertical: 10,
   },
-  emptyHeroBtnText: {
+  emptyDiscoverBtnText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',

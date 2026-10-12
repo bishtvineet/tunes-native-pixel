@@ -8,6 +8,7 @@ export type NetworkMode =
 
 const STORAGE_KEY = 'tunes_network_mode';
 
+// Default endpoint URLs matching your backend configuration
 const RENDER_BASE_URL = 'https://pwa-music-app-backend.onrender.com';
 const LAPTOP_BASE_URL = 'https://vineetbisht.tail02b0f1.ts.net';
 
@@ -59,21 +60,25 @@ export const initNetworkMode = async (): Promise<NetworkMode> => {
   return currentCachedMode;
 };
 
-export const getSavedNetworkMode = (): NetworkMode => currentCachedMode;
+export const getSavedNetworkMode = (): NetworkMode => {
+  return currentCachedMode;
+};
 
 export const setSavedNetworkMode = async (mode: NetworkMode): Promise<void> => {
   currentCachedMode = mode;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, mode);
   } catch (err) {
-    console.warn('[Network] Failed to persist network mode:', err);
+    console.warn('Failed to persist network mode:', err);
   }
 };
 
 export const getApiConfig = (): { baseUrl: string; networkMode: NetworkMode } => {
   const isDirect = NETWORK_MODES[currentCachedMode].isLaptopDirect;
+  const baseUrl = isDirect ? LAPTOP_BASE_URL : RENDER_BASE_URL;
+
   return {
-    baseUrl: isDirect ? LAPTOP_BASE_URL : RENDER_BASE_URL,
+    baseUrl,
     networkMode: currentCachedMode,
   };
 };

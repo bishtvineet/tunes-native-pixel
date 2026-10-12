@@ -1,7 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../common/Icon';
+import { M3Pressable } from '../common/M3Pressable';
+import { formatDuration } from '../../utils/audio';
 import type { Track } from '../../types';
 
 interface SongCardProps {
@@ -21,19 +23,30 @@ export const SongCard: React.FC<SongCardProps> = ({
 }) => {
   const { tokens, shapes } = useTheme();
 
+  // Robust duration calculation: if durationFormatted is '--:--' or missing, compute from duration
+  const displayDuration = React.useMemo(() => {
+    if (song.durationFormatted && song.durationFormatted !== '--:--') {
+      return song.durationFormatted;
+    }
+    if (song.duration && song.duration > 0) {
+      return formatDuration(song.duration);
+    }
+    return '--:--';
+  }, [song.duration, song.durationFormatted]);
+
   return (
-    <TouchableOpacity
-      activeOpacity={0.7}
+    <M3Pressable
       onPress={onPress}
+      pressedScale={0.98}
       style={[
-        styles.container,
+        styles.cardContainer,
         {
-          backgroundColor: isPlaying ? tokens.surfaceVariant : 'transparent',
+          backgroundColor: isPlaying ? tokens.surfaceVariant : tokens.surface,
           borderRadius: shapes.md,
+          borderColor: isPlaying ? tokens.primary : 'rgba(255, 255, 255, 0.05)',
         },
       ]}
     >
-      {/* Thumbnail artwork / fallback placeholder */}
       <View
         style={[
           styles.artWrapper,
@@ -44,96 +57,89 @@ export const SongCard: React.FC<SongCardProps> = ({
         ]}
       >
         {song.thumbnailUrl ? (
-          <Image source={{ uri: song.thumbnailUrl }} style={styles.artwork} />
+          <Image source={{ uri: song.thumbnailUrl }} style={styles.artImage} />
         ) : (
-          <View style={styles.placeholder}>
-            <Icon name="library" size={20} color={tokens.outline} />
+          <View style={styles.artFallback}>
+            <Icon name="library" size={20} color={tokens.primary} />
           </View>
         )}
       </View>
 
-      {/* Track Title and Artist details */}
       <View style={styles.metaContainer}>
         <Text
           numberOfLines={1}
-          style={[
-            styles.title,
-            { color: isPlaying ? tokens.primary : tokens.onSurface },
-          ]}
+          style={[styles.title, { color: isPlaying ? tokens.primary : tokens.onSurface }]}
         >
           {song.title}
         </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.artist, { color: tokens.onSurfaceVariant }]}
-        >
-          {song.artist} • {song.durationFormatted}
+        <Text numberOfLines={1} style={[styles.artist, { color: tokens.onSurfaceVariant }]}>
+          {song.artist} • {displayDuration}
         </Text>
       </View>
 
-      {/* Row action buttons */}
-      <View style={styles.actions}>
+      <View style={styles.actionRow}>
         {onToggleFavorite && (
-          <TouchableOpacity onPress={onToggleFavorite} style={styles.iconBtn}>
+          <M3Pressable onPress={onToggleFavorite} style={styles.iconBtn}>
             <Icon
               name={song.isFavorite ? 'heart-filled' : 'heart-outline'}
-              size={20}
-              color={song.isFavorite ? tokens.accentPink : tokens.outline}
+              size={18}
+              color={song.isFavorite ? tokens.accentPink : tokens.onSurfaceVariant}
             />
-          </TouchableOpacity>
+          </M3Pressable>
         )}
 
         {onDelete && (
-          <TouchableOpacity onPress={onDelete} style={styles.iconBtn}>
-            <Icon name="close" size={18} color={tokens.onSurfaceVariant} />
-          </TouchableOpacity>
+          <M3Pressable onPress={onDelete} style={styles.iconBtn}>
+            <Icon name="close" size={16} color={tokens.onSurfaceVariant} />
+          </M3Pressable>
         )}
       </View>
-    </TouchableOpacity>
+    </M3Pressable>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  cardContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    marginVertical: 2,
+    marginVertical: 4,
+    borderWidth: 1.5,
   },
   artWrapper: {
     width: 48,
     height: 48,
     overflow: 'hidden',
   },
-  artwork: {
+  artImage: {
     width: '100%',
     height: '100%',
   },
-  placeholder: {
+  artFallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   metaContainer: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
     justifyContent: 'center',
   },
   title: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   artist: {
     fontSize: 12,
-    marginTop: 2,
+    marginTop: 3,
   },
-  actions: {
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   iconBtn: {
-    padding: 6,
+    padding: 8,
   },
 });
