@@ -6,9 +6,6 @@ import { formatDuration } from '../utils/audio';
 const TRACKS_METADATA_KEY = 'tunes_native_tracks_meta';
 const FAVORITES_KEY = 'tunes_favorites';
 const LIBRARIES_KEY = 'tunes_custom_libraries';
-const TRACKS_DIR = `${FileSystem.documentDirectory}tracks/`;
-
-const AMBIENT_GLOW_KEY = 'tunes_ambient_glow_enabled';
 
 export interface CustomLibrary {
   id: string;
@@ -17,12 +14,18 @@ export interface CustomLibrary {
   createdAt: number;
 }
 
+// Dynamically resolves current sandbox Documents directory
+const getTracksDir = (): string => {
+  return `${FileSystem.documentDirectory}tracks/`;
+};
+
 // Ensure tracks directory exists on physical disk
 const ensureDirectoryExists = async (): Promise<void> => {
   try {
-    const dirInfo = await FileSystem.getInfoAsync(TRACKS_DIR);
+    const dir = getTracksDir();
+    const dirInfo = await FileSystem.getInfoAsync(dir);
     if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(TRACKS_DIR, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
     }
   } catch (error) {
     console.error('[Storage] Error ensuring directory exists:', error);
@@ -30,11 +33,44 @@ const ensureDirectoryExists = async (): Promise<void> => {
 };
 
 export const getTrackFilePath = (trackId: string): string => {
-  return `${TRACKS_DIR}${trackId}.mp3`;
+  return `${getTracksDir()}${trackId}.mp3`;
 };
 
 export const getTrackArtworkPath = (trackId: string): string => {
-  return `${TRACKS_DIR}${trackId}.jpg`;
+  return `${getTracksDir()}${trackId}.jpg`;
+};
+
+/**
+ * Re-anchors file paths to the current iOS sandbox Documents container.
+ * Fixes broken playback & missing thumbnails after app updates or fresh IPA installs.
+ */
+const reanchorTrackPaths = (track: Track): Track => {
+  const currentTracksDir = getTracksDir();
+
+  let resolvedFileUri = track.fileUri;
+  if (resolvedFileUri) {
+    const fileName = resolvedFileUri.split('/').pop();
+    if (fileName) {
+      resolvedFileUri = `${currentTracksDir}${fileName}`;
+    }
+  }
+
+  let resolvedThumbnailUrl = track.thumbnailUrl;
+  if (
+    resolvedThumbnailUrl &&
+    (resolvedThumbnailUrl.startsWith('file://') || resolvedThumbnailUrl.includes('/tracks/'))
+  ) {
+    const thumbName = resolvedThumbnailUrl.split('/').pop();
+    if (thumbName) {
+      resolvedThumbnailUrl = `${currentTracksDir}${thumbName}`;
+    }
+  }
+
+  return {
+    ...track,
+    fileUri: resolvedFileUri,
+    thumbnailUrl: resolvedThumbnailUrl,
+  };
 };
 
 export const getAllTracks = async (): Promise<Track[]> => {
@@ -56,8 +92,10 @@ export const getAllTracks = async (): Promise<Track[]> => {
           formatted = formatDuration(track.duration);
         }
 
+        const fixed = reanchorTrackPaths(track);
+
         return {
-          ...track,
+          ...fixed,
           durationFormatted: formatted || '--:--',
           isFavorite: favSet.has(track.id),
         };
@@ -128,7 +166,6 @@ export const deleteTrack = async (id: string): Promise<void> => {
       );
     }
 
-    // Clean up track ID references from custom libraries
     const libs = await getCustomLibraries();
     const updatedLibs = libs.map((l) => ({
       ...l,
@@ -143,11 +180,12 @@ export const deleteTrack = async (id: string): Promise<void> => {
 export const getStorageStats = async (): Promise<{ totalBytes: number; formattedSize: string }> => {
   try {
     await ensureDirectoryExists();
-    const files = await FileSystem.readDirectoryAsync(TRACKS_DIR);
+    const tracksDir = getTracksDir();
+    const files = await FileSystem.readDirectoryAsync(tracksDir);
     let totalBytes = 0;
 
     for (const fileName of files) {
-      const fileInfo = await FileSystem.getInfoAsync(`${TRACKS_DIR}${fileName}`);
+      const fileInfo = await FileSystem.getInfoAsync(`${tracksDir}${fileName}`);
       if (fileInfo.exists && !fileInfo.isDirectory) {
         totalBytes += fileInfo.size || 0;
       }
@@ -171,12 +209,13 @@ export const pruneStaleStorage = async (): Promise<{ freedBytes: number; prunedC
       }
     });
 
-    const files = await FileSystem.readDirectoryAsync(TRACKS_DIR);
+    const tracksDir = getTracksDir();
+    const files = await FileSystem.readDirectoryAsync(tracksDir);
     let freedBytes = 0;
     let prunedCount = 0;
 
     for (const file of files) {
-      const fullPath = `${TRACKS_DIR}${file}`;
+      const fullPath = `${tracksDir}${file}`;
       if (!validFilePaths.has(fullPath)) {
         const info = await FileSystem.getInfoAsync(fullPath);
         if (info.exists) {
@@ -324,10 +363,12 @@ export const toggleTrackInLibrary = async (
   return isNowIncluded;
 };
 
+const AMBIENT_GLOW_KEY = 'tunes_ambient_glow_enabled';
+
 export const getAmbientGlowEnabled = async (): Promise<boolean> => {
   try {
     const val = await AsyncStorage.getItem(AMBIENT_GLOW_KEY);
-    return val !== null ? val === 'true' : true; // Default: enabled
+    return val !== null ? val === 'true' : true;
   } catch {
     return true;
   }

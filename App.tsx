@@ -26,6 +26,7 @@ import {
   getAmbientGlowEnabled,
 } from './src/services/storage';
 import { initNetworkMode } from './src/services/network';
+import { configureBackgroundAudio } from './src/services/audioPlayerService';
 import type { Track, PlaybackContext } from './src/types';
 
 function MainAppShell() {
@@ -75,6 +76,7 @@ function MainAppShell() {
   useEffect(() => {
     const bootstrap = async () => {
       try {
+        await configureBackgroundAudio();
         await initNetworkMode();
         const glowPref = await getAmbientGlowEnabled();
         setIsAmbientGlowEnabled(glowPref);
