@@ -1,34 +1,61 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { createAudioPlayer, AudioPlayer } from 'expo-audio';
+import TrackPlayer, {
+  Capability,
+  State,
+  usePlaybackState,
+  useProgress,
+  Event,
+  useTrackPlayerEvents,
+  RepeatMode as TrackPlayerRepeatMode,
+} from 'react-native-track-player';
 import { updateTrackDuration } from '../services/storage';
-import { configureBackgroundAudio } from '../services/audioPlayerService';
 import type { Track, RepeatMode, PlaybackContext } from '../types';
+
+let isPlayerSetup = false;
+
+const setupPlayer = async (): Promise<void> => {
+  if (isPlayerSetup) return;
+  try {
+    await TrackPlayer.setupPlayer({
+      autoHandleInterruptions: true,
+    });
+    await TrackPlayer.updateOptions({
+      capabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+      ],
+      compactCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+      ],
+    });
+    isPlayerSetup = true;
+  } catch {
+    // Already setup
+    isPlayerSetup = true;
+  }
+};
 
 export function useAudioPlayer() {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [currentTime, setCurrentTime] = useState<number>(0);
-  const [duration, setDuration] = useState<number>(0);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [isShuffle, setIsShuffle] = useState<boolean>(false);
   const [playbackContext, setPlaybackContext] = useState<PlaybackContext>('All');
   const [queue, setQueue] = useState<Track[]>([]);
 
-  // Engine references
-  const playerRef = useRef<AudioPlayer | null>(null);
   const queueRef = useRef<Track[]>([]);
   const currentTrackRef = useRef<Track | null>(null);
   const repeatModeRef = useRef<RepeatMode>('off');
   const isShuffleRef = useRef<boolean>(false);
-  const isPlayingRef = useRef<boolean>(false);
-  const playRequestIdRef = useRef<number>(0);
-  const isTransitioningRef = useRef<boolean>(false);
-  const statusSubscriptionRef = useRef<any>(null);
 
-  // Mutable refs for lock screen remote commands
-  const nextTrackRef = useRef<() => void>(() => {});
-  const prevTrackRef = useRef<() => void>(() => {});
-  const togglePlayRef = useRef<() => void>(() => {});
+  const playbackState = usePlaybackState();
+  const { position, duration: trackPlayerDuration } = useProgress(500);
+
+  const isPlaying = playbackState.state === State.Playing;
 
   useEffect(() => {
     queueRef.current = queue;
@@ -47,347 +74,139 @@ export function useAudioPlayer() {
   }, [isShuffle]);
 
   useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
+    setupPlayer().catch(console.error);
+  }, []);
 
+  // Update current track when the active track changes in TrackPlayer
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
+    if (event.track) {
+      const active = queueRef.current.find((t) => t.id === event.track?.id);
+      if (active) {
+        setCurrentTrack(active);
+      }
+    }
+  });
+
+  // Track finished listener to handle repeat modes
+  useTrackPlayerEvents([Event.PlaybackQueueEnded], async () => {
+    if (repeatModeRef.current === 'all' && queueRef.current.length > 0) {
+      await TrackPlayer.skip(0);
+      await TrackPlayer.play();
+    }
+  });
+
+  // Persist duration if missing
   useEffect(() => {
-    configureBackgroundAudio();
-    return () => {
-      if (statusSubscriptionRef.current) {
-        try {
-          statusSubscriptionRef.current.remove?.();
-        } catch {}
-        statusSubscriptionRef.current = null;
+    if (currentTrack && trackPlayerDuration > 0) {
+      if (
+        !currentTrack.duration ||
+        currentTrack.duration <= 0 ||
+        !currentTrack.durationFormatted ||
+        currentTrack.durationFormatted === '--:--'
+      ) {
+        const totalSecs = Math.floor(trackPlayerDuration);
+        currentTrack.duration = totalSecs;
+        const mins = Math.floor(totalSecs / 60);
+        const secs = totalSecs % 60;
+        currentTrack.durationFormatted = `${mins}:${secs.toString().padStart(2, '0')}`;
+        updateTrackDuration(currentTrack.id, totalSecs);
       }
-      if (playerRef.current) {
-        try {
-          if (typeof (playerRef.current as any).setActiveForLockScreen === 'function') {
-            (playerRef.current as any).setActiveForLockScreen(false);
-          }
-          playerRef.current.pause();
-        } catch {}
-        playerRef.current = null;
-      }
-    };
-  }, []);
-
-  const safeTearDownCurrentPlayer = useCallback(() => {
-    if (statusSubscriptionRef.current) {
-      try {
-        if (typeof statusSubscriptionRef.current.remove === 'function') {
-          statusSubscriptionRef.current.remove();
-        }
-      } catch {}
-      statusSubscriptionRef.current = null;
     }
-
-    if (playerRef.current) {
-      const p = playerRef.current;
-      playerRef.current = null;
-      try {
-        p.pause();
-      } catch {}
-    }
-  }, []);
-
-  const togglePlay = useCallback(() => {
-    if (!playerRef.current || isTransitioningRef.current) return;
-    try {
-      if (isPlayingRef.current) {
-        playerRef.current.pause();
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-      } else {
-        playerRef.current.play();
-        setIsPlaying(true);
-        isPlayingRef.current = true;
-      }
-    } catch (err) {
-      console.warn('[useAudioPlayer] togglePlay error:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    togglePlayRef.current = togglePlay;
-  }, [togglePlay]);
-
-  const seek = useCallback((seconds: number) => {
-    if (!playerRef.current) return;
-    try {
-      const target = Math.max(0, seconds);
-      playerRef.current.seekTo(target);
-      setCurrentTime(target);
-    } catch (err) {
-      console.warn('[useAudioPlayer] seek error:', err);
-    }
-  }, []);
+  }, [currentTrack, trackPlayerDuration]);
 
   const playTrack = useCallback(
     async (track: Track, context: PlaybackContext = 'All', newQueue?: Track[]) => {
       if (!track || !track.fileUri) return;
+      await setupPlayer();
 
-      if (isTransitioningRef.current) {
-        playRequestIdRef.current++;
+      const activeList = newQueue && newQueue.length > 0 ? newQueue : [track];
+      setQueue(activeList);
+      queueRef.current = activeList;
+      setPlaybackContext(context);
+      setCurrentTrack(track);
+
+      await TrackPlayer.reset();
+
+      const formattedTracks = activeList.map((t) => ({
+        id: t.id,
+        url: t.fileUri,
+        title: t.title,
+        artist: t.artist,
+        artwork: t.thumbnailUrl ? t.thumbnailUrl : undefined,
+        duration: t.duration && t.duration > 0 ? t.duration : undefined,
+      }));
+
+      await TrackPlayer.add(formattedTracks);
+
+      const targetIndex = activeList.findIndex((t) => t.id === track.id);
+      if (targetIndex > 0) {
+        await TrackPlayer.skip(targetIndex);
       }
-      isTransitioningRef.current = true;
-      const currentRequestId = ++playRequestIdRef.current;
 
-      try {
-        safeTearDownCurrentPlayer();
-
-        setCurrentTrack(track);
-        setPlaybackContext(context);
-        if (newQueue && newQueue.length > 0) {
-          setQueue(newQueue);
-          queueRef.current = newQueue;
-        }
-
-        const fallbackDur = track.duration && track.duration > 0 ? track.duration : 0;
-        setDuration(fallbackDur);
-        setCurrentTime(0);
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-
-        // Ensure background audio session category is forcefully claimed
-        await configureBackgroundAudio();
-
-        if (currentRequestId !== playRequestIdRef.current) {
-          isTransitioningRef.current = false;
-          return;
-        }
-
-        // Initialize AudioPlayer with lock screen metadata passed directly in creation options
-        const newPlayer = createAudioPlayer(
-          {
-            uri: track.fileUri,
-          },
-          {
-            updateInterval: 1000,
-          } as any
-        );
-
-        playerRef.current = newPlayer;
-
-        // Register Lock Screen MediaSession
-        if (typeof (newPlayer as any).setActiveForLockScreen === 'function') {
-          try {
-            (newPlayer as any).setActiveForLockScreen(
-              true,
-              {
-                title: track.title,
-                artist: track.artist,
-                albumTitle: 'Tunes',
-                artworkUrl: track.thumbnailUrl || undefined,
-              },
-              {
-                showNextTrack: true,
-                showPreviousTrack: true,
-                showSeekForward: false,
-                showSeekBackward: false,
-              }
-            );
-          } catch {
-            try {
-              (newPlayer as any).setActiveForLockScreen(true);
-            } catch {}
-          }
-        }
-
-        // Start playback
-        newPlayer.play();
-        setIsPlaying(true);
-        isPlayingRef.current = true;
-
-        // Remote action listeners for lock screen
-        if (typeof (newPlayer as any).addListener === 'function') {
-          try {
-            (newPlayer as any).addListener('onRemotePlay', () => {
-              if (playerRef.current) {
-                playerRef.current.play();
-                setIsPlaying(true);
-                isPlayingRef.current = true;
-              }
-            });
-            (newPlayer as any).addListener('onRemotePause', () => {
-              if (playerRef.current) {
-                playerRef.current.pause();
-                setIsPlaying(false);
-                isPlayingRef.current = false;
-              }
-            });
-            (newPlayer as any).addListener('onRemoteNextTrack', () => {
-              nextTrackRef.current();
-            });
-            (newPlayer as any).addListener('onRemotePreviousTrack', () => {
-              prevTrackRef.current();
-            });
-          } catch {}
-        }
-
-        const handleStatus = (status: any) => {
-          if (playerRef.current !== newPlayer || currentRequestId !== playRequestIdRef.current) {
-            return;
-          }
-
-          const isNowPlaying = Boolean(status?.playing);
-          setIsPlaying(isNowPlaying);
-          isPlayingRef.current = isNowPlaying;
-
-          const rawTime = status?.currentTime ?? newPlayer?.currentTime ?? 0;
-          const rawDur = status?.duration ?? newPlayer?.duration ?? 0;
-
-          const timeSec = rawTime > 1000 && (rawDur ? rawDur > 1000 : true) ? rawTime / 1000 : rawTime;
-          const durSec = rawDur > 1000 ? rawDur / 1000 : rawDur;
-
-          setCurrentTime(timeSec);
-
-          if (durSec > 0) {
-            setDuration(durSec);
-            if (!track.duration || track.duration <= 0 || !track.durationFormatted || track.durationFormatted === '--:--') {
-              track.duration = Math.floor(durSec);
-              const m = Math.floor(durSec / 60);
-              const s = Math.floor(durSec % 60);
-              track.durationFormatted = `${m}:${s.toString().padStart(2, '0')}`;
-              updateTrackDuration(track.id, Math.floor(durSec));
-            }
-          } else if (track.duration && track.duration > 0) {
-            setDuration(track.duration);
-          }
-
-          if (status?.didJustFinish) {
-            handleTrackDidFinish();
-          }
-        };
-
-        if (typeof newPlayer.addListener === 'function') {
-          statusSubscriptionRef.current = newPlayer.addListener('playbackStatusUpdate', handleStatus);
-        }
-      } catch (err) {
-        console.error('[useAudioPlayer] playTrack critical error:', err);
-      } finally {
-        isTransitioningRef.current = false;
-      }
+      await TrackPlayer.play();
     },
-    [safeTearDownCurrentPlayer]
+    []
   );
 
-  const handleTrackDidFinish = useCallback(() => {
+  const togglePlay = useCallback(async () => {
+    const state = await TrackPlayer.getPlaybackState();
+    if (state.state === State.Playing) {
+      await TrackPlayer.pause();
+    } else {
+      await TrackPlayer.play();
+    }
+  }, []);
+
+  const seek = useCallback(async (seconds: number) => {
+    await TrackPlayer.seekTo(Math.max(0, seconds));
+  }, []);
+
+  const nextTrack = useCallback(async () => {
     if (repeatModeRef.current === 'one') {
-      if (playerRef.current) {
-        try {
-          playerRef.current.seekTo(0);
-          playerRef.current.play();
-          setIsPlaying(true);
-          isPlayingRef.current = true;
-        } catch {}
-      }
+      await TrackPlayer.seekTo(0);
+      await TrackPlayer.play();
       return;
     }
 
-    const currentList = queueRef.current;
-    const current = currentTrackRef.current;
-    if (!currentList.length || !current) return;
-
-    const currentIndex = currentList.findIndex((t) => t.id === current.id);
-    let nextIndex = currentIndex + 1;
-
-    if (nextIndex >= currentList.length) {
-      if (repeatModeRef.current === 'all') {
-        nextIndex = 0;
-      } else {
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-        return;
+    try {
+      await TrackPlayer.skipToNext();
+      await TrackPlayer.play();
+    } catch {
+      if (repeatModeRef.current === 'all' && queueRef.current.length > 0) {
+        await TrackPlayer.skip(0);
+        await TrackPlayer.play();
       }
     }
+  }, []);
 
-    const nextTrackItem = currentList[nextIndex];
-    if (nextTrackItem) {
-      playTrack(nextTrackItem, playbackContext, currentList);
-    }
-  }, [playTrack, playbackContext]);
-
-  const nextTrack = useCallback(() => {
-    if (isTransitioningRef.current) return;
-
-    const list = queueRef.current;
-    const current = currentTrackRef.current;
-    if (!list.length || !current) return;
-
-    if (repeatModeRef.current === 'one') {
-      if (playerRef.current) {
-        try {
-          playerRef.current.seekTo(0);
-          playerRef.current.play();
-          setIsPlaying(true);
-          isPlayingRef.current = true;
-        } catch {}
-      }
+  const prevTrack = useCallback(async () => {
+    if (position > 3) {
+      await TrackPlayer.seekTo(0);
       return;
     }
-
-    const currentIndex = list.findIndex((t) => t.id === current.id);
-    let nextIndex = currentIndex + 1;
-
-    if (nextIndex >= list.length) {
-      if (repeatModeRef.current === 'all') {
-        nextIndex = 0;
-      } else {
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-        return;
-      }
+    try {
+      await TrackPlayer.skipToPrevious();
+      await TrackPlayer.play();
+    } catch {
+      await TrackPlayer.seekTo(0);
     }
+  }, [position]);
 
-    const target = list[nextIndex];
-    if (target) {
-      playTrack(target, playbackContext, list);
-    }
-  }, [playTrack, playbackContext]);
-
-  useEffect(() => {
-    nextTrackRef.current = nextTrack;
-  }, [nextTrack]);
-
-  const prevTrack = useCallback(() => {
-    if (isTransitioningRef.current) return;
-
-    const list = queueRef.current;
-    const current = currentTrackRef.current;
-    if (!list.length || !current) return;
-
-    if (currentTime > 3) {
-      if (playerRef.current) {
-        try {
-          playerRef.current.seekTo(0);
-          setCurrentTime(0);
-        } catch {}
-      }
-      return;
-    }
-
-    const currentIndex = list.findIndex((t) => t.id === current.id);
-    let prevIndex = currentIndex - 1;
-
-    if (prevIndex < 0) {
-      prevIndex = repeatModeRef.current === 'all' ? list.length - 1 : 0;
-    }
-
-    const target = list[prevIndex];
-    if (target) {
-      playTrack(target, playbackContext, list);
-    }
-  }, [currentTime, playTrack, playbackContext]);
-
-  useEffect(() => {
-    prevTrackRef.current = prevTrack;
-  }, [prevTrack]);
-
-  const toggleRepeat = useCallback(() => {
+  const toggleRepeat = useCallback(async () => {
     setRepeatMode((prev) => {
-      if (prev === 'off') return 'all';
-      if (prev === 'all') return 'one';
-      return 'off';
+      let next: RepeatMode = 'off';
+      if (prev === 'off') next = 'all';
+      else if (prev === 'all') next = 'one';
+      else next = 'off';
+
+      if (next === 'one') {
+        TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Track).catch(() => {});
+      } else if (next === 'all') {
+        TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Queue).catch(() => {});
+      } else {
+        TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Off).catch(() => {});
+      }
+      return next;
     });
   }, []);
 
@@ -395,8 +214,11 @@ export function useAudioPlayer() {
     setIsShuffle((prev) => {
       const nextVal = !prev;
       if (nextVal) {
-        const shuffled = [...queueRef.current].sort(() => Math.random() - 0.5);
-        setQueue(shuffled);
+        const current = currentTrackRef.current;
+        const remaining = queueRef.current.filter((t) => t.id !== current?.id);
+        const shuffled = remaining.sort(() => Math.random() - 0.5);
+        const newQ = current ? [current, ...shuffled] : shuffled;
+        setQueue(newQ);
       } else {
         setQueue(queueRef.current);
       }
@@ -404,19 +226,16 @@ export function useAudioPlayer() {
     });
   }, []);
 
-  const stopTrack = useCallback(() => {
-    safeTearDownCurrentPlayer();
+  const stopTrack = useCallback(async () => {
+    await TrackPlayer.reset();
     setCurrentTrack(null);
-    setIsPlaying(false);
-    isPlayingRef.current = false;
-    setCurrentTime(0);
-    setDuration(0);
-  }, [safeTearDownCurrentPlayer]);
+  }, []);
 
   const updatePlaybackContext = useCallback(
     (context: PlaybackContext, updatedQueue: Track[]) => {
       setPlaybackContext(context);
       setQueue(updatedQueue);
+      queueRef.current = updatedQueue;
     },
     []
   );
@@ -424,8 +243,8 @@ export function useAudioPlayer() {
   return {
     currentTrack,
     isPlaying,
-    currentTime,
-    duration,
+    currentTime: position,
+    duration: trackPlayerDuration || currentTrack?.duration || 0,
     repeatMode,
     isShuffle,
     playbackContext,

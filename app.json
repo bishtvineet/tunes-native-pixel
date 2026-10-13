@@ -3,13 +3,14 @@
     "name": "Tunes",
     "slug": "tunes-native",
     "version": "1.0.1",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icons/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tunes.offline",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "UIBackgroundModes": ["audio"]
       }
