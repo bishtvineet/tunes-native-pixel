@@ -2,6 +2,15 @@ name: Build iOS IPA (Free Unsigned)
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Select Build Target'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - 'development'
+          - 'release'
 
 jobs:
   build:
@@ -26,16 +35,26 @@ jobs:
       - name: 📱 Prebuild iOS Project
         run: npx expo prebuild --platform ios --clean
 
-      - name: 🔨 Build iOS App (Release Unsigned)
+      - name: 🔨 Build iOS App (${{ github.event.inputs.build_type }})
         run: |
           cd ios
           WORKSPACE=$(ls -d *.xcworkspace | head -n 1)
           SCHEME_NAME=$(basename "$WORKSPACE" .xcworkspace)
           echo "Detected scheme: $SCHEME_NAME"
 
+          if [ "${{ github.event.inputs.build_type }}" = "development" ]; then
+            CONFIG="Debug"
+            IPA_NAME="tunes-dev.ipa"
+          else
+            CONFIG="Release"
+            IPA_NAME="tunes-native.ipa"
+          fi
+
+          echo "Building configuration: $CONFIG"
+
           xcodebuild -workspace "$WORKSPACE" \
             -scheme "$SCHEME_NAME" \
-            -configuration Release \
+            -configuration "$CONFIG" \
             -destination 'generic/platform=iOS' \
             -archivePath build/app.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
@@ -43,15 +62,15 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             archive
 
-      - name: 📦 Package .ipa File
-        run: |
+          cd ..
+          rm -rf Payload "$IPA_NAME"
           mkdir -p Payload
           cp -r ios/build/app.xcarchive/Products/Applications/*.app Payload/
-          zip -r tunes-native.ipa Payload
+          zip -r "$IPA_NAME" Payload
 
       - name: 🚀 Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tunes-native-ipa
-          path: tunes-native.ipa
+          name: ${{ github.event.inputs.build_type == 'development' && 'tunes-dev-ipa' || 'tunes-native-ipa' }}
+          path: ${{ github.event.inputs.build_type == 'development' && 'tunes-dev.ipa' || 'tunes-native.ipa' }}
           retention-days: 3

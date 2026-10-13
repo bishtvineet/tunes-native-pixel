@@ -2,6 +2,7 @@
   "expo": {
     "name": "Tunes",
     "slug": "tunes-native",
+    "scheme": "tunes",
     "version": "1.0.1",
     "newArchEnabled": false,
     "orientation": "portrait",
