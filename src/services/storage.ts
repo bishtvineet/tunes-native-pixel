@@ -8,6 +8,8 @@ const FAVORITES_KEY = 'tunes_favorites';
 const LIBRARIES_KEY = 'tunes_custom_libraries';
 const TRACKS_DIR = `${FileSystem.documentDirectory}tracks/`;
 
+const AMBIENT_GLOW_KEY = 'tunes_ambient_glow_enabled';
+
 export interface CustomLibrary {
   id: string;
   name: string;
@@ -320,4 +322,21 @@ export const toggleTrackInLibrary = async (
 
   await AsyncStorage.setItem(LIBRARIES_KEY, JSON.stringify(updated));
   return isNowIncluded;
+};
+
+export const getAmbientGlowEnabled = async (): Promise<boolean> => {
+  try {
+    const val = await AsyncStorage.getItem(AMBIENT_GLOW_KEY);
+    return val !== null ? val === 'true' : true; // Default: enabled
+  } catch {
+    return true;
+  }
+};
+
+export const setAmbientGlowEnabled = async (enabled: boolean): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(AMBIENT_GLOW_KEY, enabled ? 'true' : 'false');
+  } catch (err) {
+    console.warn('[Storage] Failed to persist ambient glow preference:', err);
+  }
 };

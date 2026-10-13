@@ -9,7 +9,9 @@ import {
   Animated,
   PanResponder,
   Platform,
+  Easing,
 } from 'react-native';
+import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../common/Icon';
@@ -19,9 +21,14 @@ import { formatDuration } from '../../utils/audio';
 import type { Track, RepeatMode, PlaybackContext } from '../../types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const ARTWORK_SIZE = Math.min(SCREEN_WIDTH - 48, 330);
+
+// ─── Trimmed 3D Card Dimensions ───
+const ARTWORK_WIDTH = Math.min(SCREEN_WIDTH - 44, 340);
+const ARTWORK_HEIGHT = Math.round(ARTWORK_WIDTH * 0.68);
+
 const MINI_HEIGHT = 64;
 const SCRUBBER_TRACK_WIDTH = SCREEN_WIDTH - 48;
+const GLOW_WIDTH = 42;
 
 interface FullPlayerSheetProps {
   currentTrack: Track | null;
@@ -31,6 +38,7 @@ interface FullPlayerSheetProps {
   repeatMode: RepeatMode;
   isShuffle?: boolean;
   playbackContext: PlaybackContext;
+  isAmbientGlowEnabled?: boolean;
   onTogglePlay: () => void;
   onSeek: (seconds: number) => void;
   onNext: () => void;
@@ -49,6 +57,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
   repeatMode,
   isShuffle = false,
   playbackContext,
+  isAmbientGlowEnabled = true,
   onTogglePlay,
   onSeek,
   onNext,
@@ -68,25 +77,89 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     currentTrack?.isFavorite ?? false
   );
 
-  // Individual bounce animators for Shuffle, Repeat, and Favorite
+  // ─── Bounce Animators for Bottom Controls (Shuffle, Repeat, Favorite) ───
   const shuffleBounceAnim = useRef(new Animated.Value(1)).current;
   const repeatBounceAnim = useRef(new Animated.Value(1)).current;
   const favoriteBounceAnim = useRef(new Animated.Value(1)).current;
 
-  // Punchy pop up & spring back sequence
+  // ─── Continuous Organic Beat Glow Engine ───
+  const glowPulseAnim = useRef(new Animated.Value(0)).current;
+  const glowScaleXAnim = useRef(new Animated.Value(0.7)).current;
+
+  useEffect(() => {
+    let loopAnimation: Animated.CompositeAnimation | null = null;
+
+    if (isPlaying && isExpandedState && isAmbientGlowEnabled) {
+      loopAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(glowPulseAnim, {
+              toValue: 0.85,
+              duration: 260,
+              easing: Easing.bezier(0.16, 0.84, 0.28, 1.0),
+              useNativeDriver: false,
+            }),
+            Animated.timing(glowScaleXAnim, {
+              toValue: 1.12,
+              duration: 260,
+              easing: Easing.bezier(0.16, 0.84, 0.28, 1.0),
+              useNativeDriver: false,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(glowPulseAnim, {
+              toValue: 0.22,
+              duration: 720,
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1.0),
+              useNativeDriver: false,
+            }),
+            Animated.timing(glowScaleXAnim, {
+              toValue: 0.78,
+              duration: 720,
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1.0),
+              useNativeDriver: false,
+            }),
+          ]),
+        ])
+      );
+      loopAnimation.start();
+    } else {
+      glowPulseAnim.stopAnimation();
+      glowScaleXAnim.stopAnimation();
+      Animated.parallel([
+        Animated.timing(glowPulseAnim, {
+          toValue: isPlaying && isAmbientGlowEnabled ? 0.25 : 0,
+          duration: 350,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: false,
+        }),
+        Animated.timing(glowScaleXAnim, {
+          toValue: 0.5,
+          duration: 350,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }
+
+    return () => loopAnimation?.stop();
+  }, [isPlaying, isExpandedState, isAmbientGlowEnabled, glowPulseAnim, glowScaleXAnim]);
+
+  // Jitter-free Native Driver Bounce for bottom icons
   const triggerIconBounce = (anim: Animated.Value) => {
     anim.stopAnimation();
     anim.setValue(1);
     Animated.sequence([
       Animated.timing(anim, {
-        toValue: 1.34,
+        toValue: 1.28,
         duration: 90,
-        useNativeDriver: true,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true, // Native driver eliminates frame drops
       }),
       Animated.spring(anim, {
         toValue: 1.0,
         tension: 260,
-        friction: 7,
+        friction: 8,
         useNativeDriver: true,
       }),
     ]).start();
@@ -119,8 +192,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
 
   const activeProgressFraction = targetSeekFraction !== null ? targetSeekFraction : actualFraction;
 
+  // ─── Expansion Weights for Prev / Play / Next ───
   const prevWeight = useRef(new Animated.Value(1)).current;
-  const playWeight = useRef(new Animated.Value(1)).current;
+  const playWeight = useRef(new Animated.Value(1.15)).current;
   const nextWeight = useRef(new Animated.Value(1)).current;
 
   const navBarOffset = (insets.bottom > 0 ? insets.bottom + 4 : 12) + 58 + 12;
@@ -184,31 +258,36 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     onSeek(Math.floor(fraction * totalDuration));
   };
 
+  // Smooth, non-blocking expansion spring for transport controls
   const triggerButtonExpansion = (button: 'prev' | 'play' | 'next') => {
+    prevWeight.stopAnimation();
+    playWeight.stopAnimation();
+    nextWeight.stopAnimation();
+
     Animated.parallel([
       Animated.spring(prevWeight, {
-        toValue: button === 'prev' ? 1.15 : 0.85,
-        tension: 180,
+        toValue: button === 'prev' ? 1.25 : 0.9,
+        tension: 200,
         friction: 12,
         useNativeDriver: false,
       }),
       Animated.spring(playWeight, {
-        toValue: button === 'play' ? 1.15 : 0.85,
-        tension: 180,
+        toValue: button === 'play' ? 1.35 : 0.9,
+        tension: 200,
         friction: 12,
         useNativeDriver: false,
       }),
       Animated.spring(nextWeight, {
-        toValue: button === 'next' ? 1.15 : 0.85,
-        tension: 180,
+        toValue: button === 'next' ? 1.25 : 0.9,
+        tension: 200,
         friction: 12,
         useNativeDriver: false,
       }),
     ]).start(() => {
       Animated.parallel([
-        Animated.spring(prevWeight, { toValue: 1, tension: 140, friction: 10, useNativeDriver: false }),
-        Animated.spring(playWeight, { toValue: 1, tension: 140, friction: 10, useNativeDriver: false }),
-        Animated.spring(nextWeight, { toValue: 1, tension: 140, friction: 10, useNativeDriver: false }),
+        Animated.spring(prevWeight, { toValue: 1, tension: 160, friction: 11, useNativeDriver: false }),
+        Animated.spring(playWeight, { toValue: 1.15, tension: 160, friction: 11, useNativeDriver: false }),
+        Animated.spring(nextWeight, { toValue: 1, tension: 160, friction: 11, useNativeDriver: false }),
       ]).start();
     });
   };
@@ -290,6 +369,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
       ? 'ALL TRACKS'
       : String(playbackContext ?? '').toUpperCase();
 
+  const primaryGlowColor = tokens.primary;
+  const secondaryGlowColor = tokens.accentPink || tokens.secondary;
+
   return (
     <Animated.View
       style={[
@@ -319,11 +401,95 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             source={{ uri: currentTrack.thumbnailUrl }}
             style={styles.blurredBackdropImage}
             blurRadius={Platform.OS === 'ios' ? 18 : 10}
+            resizeMode="cover"
           />
         ) : null}
 
         <View style={[styles.glassFrostedScrim, { backgroundColor: '#130B2288' }]} />
       </Animated.View>
+
+      {/* Ultra-Smooth Dual-Layer Ambient Edge Bleed */}
+      {isAmbientGlowEnabled ? (
+        <Animated.View
+          style={[
+            styles.ambientGlowContainer,
+            {
+              opacity: fullPlayerOpacity,
+            },
+          ]}
+          pointerEvents="none"
+        >
+          {/* Left Ambient Bleed */}
+          <Animated.View
+            style={[
+              styles.leftGlowPillar,
+              {
+                opacity: glowPulseAnim,
+                transform: [{ scaleX: glowScaleXAnim }],
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.nativeGlowBezelLeft,
+                {
+                  shadowColor: primaryGlowColor,
+                  backgroundColor: primaryGlowColor,
+                },
+              ]}
+            />
+
+            <Svg width={GLOW_WIDTH} height={SCREEN_HEIGHT} style={StyleSheet.absoluteFill}>
+              <Defs>
+                <LinearGradient id="leftSoftWash" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <Stop offset="0%" stopColor={primaryGlowColor} stopOpacity="0.55" />
+                  <Stop offset="20%" stopColor={primaryGlowColor} stopOpacity="0.30" />
+                  <Stop offset="45%" stopColor={primaryGlowColor} stopOpacity="0.12" />
+                  <Stop offset="70%" stopColor={primaryGlowColor} stopOpacity="0.03" />
+                  <Stop offset="90%" stopColor={primaryGlowColor} stopOpacity="0.005" />
+                  <Stop offset="100%" stopColor={primaryGlowColor} stopOpacity="0" />
+                </LinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width={GLOW_WIDTH} height={SCREEN_HEIGHT} fill="url(#leftSoftWash)" />
+            </Svg>
+          </Animated.View>
+
+          {/* Right Ambient Bleed */}
+          <Animated.View
+            style={[
+              styles.rightGlowPillar,
+              {
+                opacity: glowPulseAnim,
+                transform: [{ scaleX: glowScaleXAnim }],
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.nativeGlowBezelRight,
+                {
+                  shadowColor: secondaryGlowColor,
+                  backgroundColor: secondaryGlowColor,
+                },
+              ]}
+            />
+
+            <Svg width={GLOW_WIDTH} height={SCREEN_HEIGHT} style={StyleSheet.absoluteFill}>
+              <Defs>
+                <LinearGradient id="rightSoftWash" x1="100%" y1="0%" x2="0%" y2="0%">
+                  <Stop offset="0%" stopColor={secondaryGlowColor} stopOpacity="0.55" />
+                  <Stop offset="20%" stopColor={secondaryGlowColor} stopOpacity="0.30" />
+                  <Stop offset="45%" stopColor={secondaryGlowColor} stopOpacity="0.12" />
+                  <Stop offset="70%" stopColor={secondaryGlowColor} stopOpacity="0.03" />
+                  <Stop offset="90%" stopColor={secondaryGlowColor} stopOpacity="0.005" />
+                  <Stop offset="100%" stopColor={secondaryGlowColor} stopOpacity="0" />
+                </LinearGradient>
+              </Defs>
+              <Rect x="0" y="0" width={GLOW_WIDTH} height={SCREEN_HEIGHT} fill="url(#rightSoftWash)" />
+            </Svg>
+          </Animated.View>
+        </Animated.View>
+      ) : null}
 
       {/* Mini Player */}
       <Animated.View
@@ -348,7 +514,11 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
               ]}
             >
               {currentTrack.thumbnailUrl ? (
-                <Image source={{ uri: currentTrack.thumbnailUrl }} style={styles.fullImage} />
+                <Image
+                  source={{ uri: currentTrack.thumbnailUrl }}
+                  style={styles.fullImage}
+                  resizeMode="cover"
+                />
               ) : (
                 <Icon name="library" size={18} color={tokens.primary} />
               )}
@@ -385,7 +555,6 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
         ]}
         pointerEvents={isExpandedState ? 'auto' : 'none'}
       >
-        {/* Top App Bar Header */}
         <View style={styles.topAppBarRow}>
           <View style={styles.topLeftHeaderGroup}>
             <M3Pressable
@@ -413,24 +582,41 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
           </M3Pressable>
         </View>
 
-        {/* Hero Artwork Section */}
+        {/* ─── Hero Artwork Section with 3D Depth ─── */}
         <View style={styles.artworkSection}>
           <View
             style={[
-              styles.heroArtworkBox,
+              styles.hero3DOuterShadowContainer,
               {
-                width: ARTWORK_SIZE,
-                height: ARTWORK_SIZE,
+                width: ARTWORK_WIDTH,
+                height: ARTWORK_HEIGHT,
                 borderRadius: shapes.sheet,
-                borderColor: 'rgba(255, 255, 255, 0.22)',
               },
             ]}
           >
-            {currentTrack.thumbnailUrl ? (
-              <Image source={{ uri: currentTrack.thumbnailUrl }} style={styles.fullImage} />
-            ) : (
-              <Icon name="library" size={96} color={tokens.primary} />
-            )}
+            <View
+              style={[
+                styles.heroArtworkBox,
+                {
+                  borderRadius: shapes.sheet,
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                },
+              ]}
+            >
+              {currentTrack.thumbnailUrl ? (
+                <Image
+                  source={{ uri: currentTrack.thumbnailUrl }}
+                  style={styles.heroArtworkImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Icon name="library" size={96} color={tokens.primary} />
+              )}
+
+              {/* 3D Inner Bevel & Top-Light Specular Glaze */}
+              <View style={[styles.inner3DBevelGleam, { borderRadius: shapes.sheet }]} pointerEvents="none" />
+              <View style={[styles.inner3DBottomShadow, { borderRadius: shapes.sheet }]} pointerEvents="none" />
+            </View>
           </View>
         </View>
 
@@ -464,26 +650,21 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
               {formatDuration(activeProgressFraction * totalDuration)}
             </Text>
 
-            <View style={[styles.metaChip, { backgroundColor: tokens.onSurface + '18' }]}>
-              <Text style={[styles.metaChipText, { color: tokens.onSurfaceVariant }]}>
-                44.1 kHz • FLAC
-              </Text>
-            </View>
-
             <Text style={[styles.timeLabelText, { color: tokens.onSurfaceVariant }]}>
               {formatDuration(totalDuration)}
             </Text>
           </View>
         </View>
 
-        {/* 3-Button Animated Playback Controls */}
+        {/* 3-Button Animated Playback Controls (Jitter-free expansion) */}
         <View style={styles.playbackControlsRow}>
-          <Animated.View style={{ flex: prevWeight }}>
+          <Animated.View style={[styles.transportCol, { flex: prevWeight }]}>
             <M3Pressable
               onPress={() => {
                 triggerButtonExpansion('prev');
                 onPrev();
               }}
+              pressedScale={0.93}
               style={[
                 styles.transportSideButton,
                 { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: shapes.pill },
@@ -493,12 +674,13 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             </M3Pressable>
           </Animated.View>
 
-          <Animated.View style={{ flex: playWeight }}>
+          <Animated.View style={[styles.transportCol, { flex: playWeight }]}>
             <M3Pressable
               onPress={() => {
                 triggerButtonExpansion('play');
                 onTogglePlay();
               }}
+              pressedScale={0.93}
               style={[
                 styles.transportPlayButton,
                 {
@@ -511,12 +693,13 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             </M3Pressable>
           </Animated.View>
 
-          <Animated.View style={{ flex: nextWeight }}>
+          <Animated.View style={[styles.transportCol, { flex: nextWeight }]}>
             <M3Pressable
               onPress={() => {
                 triggerButtonExpansion('next');
                 onNext();
               }}
+              pressedScale={0.93}
               style={[
                 styles.transportSideButton,
                 { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: shapes.pill },
@@ -527,7 +710,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
           </Animated.View>
         </View>
 
-        {/* Bottom Toggle Segmented Row with Punchy Scale Bounce */}
+        {/* Bottom Toggle Segmented Row */}
         <View style={[styles.bottomToggleBar, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
           <M3Pressable
             onPress={handleToggleShufflePress}
@@ -632,6 +815,50 @@ const styles = StyleSheet.create({
   glassFrostedScrim: {
     ...StyleSheet.absoluteFill,
   },
+  ambientGlowContainer: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 1,
+  },
+  leftGlowPillar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: GLOW_WIDTH,
+  },
+  rightGlowPillar: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: GLOW_WIDTH,
+  },
+  nativeGlowBezelLeft: {
+    position: 'absolute',
+    left: -6,
+    top: '15%',
+    bottom: '15%',
+    width: 10,
+    opacity: 0.65,
+    borderRadius: 5,
+    shadowOffset: { width: 10, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 22,
+    elevation: 12,
+  },
+  nativeGlowBezelRight: {
+    position: 'absolute',
+    right: -6,
+    top: '15%',
+    bottom: '15%',
+    width: 10,
+    opacity: 0.65,
+    borderRadius: 5,
+    shadowOffset: { width: -10, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 22,
+    elevation: 12,
+  },
   fullImage: {
     width: '100%',
     height: '100%',
@@ -688,6 +915,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     justifyContent: 'space-between',
     backgroundColor: 'transparent',
+    zIndex: 2,
   },
   topAppBarRow: {
     flexDirection: 'row',
@@ -728,16 +956,50 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginVertical: 4,
   },
+  hero3DOuterShadowContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.75,
+    shadowRadius: 28,
+    elevation: 22,
+  },
   heroArtworkBox: {
-    borderWidth: 1.5,
+    width: '100%',
+    height: '100%',
+    borderWidth: 2,
+    borderTopColor: 'rgba(255, 255, 255, 0.5)',
+    borderLeftColor: 'rgba(255, 255, 255, 0.35)',
+    borderRightColor: 'rgba(0, 0, 0, 0.45)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.7)',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    elevation: 14,
+    backgroundColor: '#000000',
+    position: 'relative',
+  },
+  heroArtworkImage: {
+    width: '100%',
+    height: '135%',
+  },
+  inner3DBevelGleam: {
+    ...StyleSheet.absoluteFill,
+    borderTopWidth: 2.5,
+    borderLeftWidth: 1.5,
+    borderTopColor: 'rgba(255, 255, 255, 0.65)',
+    borderLeftColor: 'rgba(255, 255, 255, 0.4)',
+    borderRightColor: 'transparent',
+    borderBottomColor: 'transparent',
+  },
+  inner3DBottomShadow: {
+    ...StyleSheet.absoluteFill,
+    borderBottomWidth: 3,
+    borderRightWidth: 1.5,
+    borderBottomColor: 'rgba(0, 0, 0, 0.65)',
+    borderRightColor: 'rgba(0, 0, 0, 0.45)',
+    borderTopColor: 'transparent',
+    borderLeftColor: 'transparent',
   },
   songMetadataRow: {
     flexDirection: 'row',
@@ -788,11 +1050,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 80,
-    gap: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
+  },
+  transportCol: {
+    height: 80,
+    paddingHorizontal: 3,
   },
   transportSideButton: {
     height: 80,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -800,6 +1066,7 @@ const styles = StyleSheet.create({
   },
   transportPlayButton: {
     height: 80,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',

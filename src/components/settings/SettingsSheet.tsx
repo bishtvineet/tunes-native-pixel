@@ -22,7 +22,7 @@ import {
   type NetworkMode,
 } from '../../services/network';
 import { pingRenderHealth, syncCookiesToBackend } from '../../services/api';
-import { pruneStaleStorage } from '../../services/storage';
+import { pruneStaleStorage, getAmbientGlowEnabled, setAmbientGlowEnabled } from '../../services/storage';
 import { queueService } from '../../services/queueService';
 import {
   sha256,
@@ -39,6 +39,7 @@ interface SettingsSheetProps {
   storageUsage?: string;
   onClearCache?: () => void;
   onRefreshStorage?: () => void;
+  onAmbientGlowChange?: (enabled: boolean) => void;
 }
 
 interface PaletteOption {
@@ -102,6 +103,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   storageUsage = '0.0 MB',
   onClearCache,
   onRefreshStorage,
+  onAmbientGlowChange,
 }) => {
   const { tokens, shapes, currentPalette, setPalette } = useTheme();
   const insets = useSafeAreaInsets();
@@ -138,8 +140,9 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
 
-  // In-sheet Toast
+  // In-sheet Toast & Ambient Light Switch
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isAmbientGlowEnabled, setIsAmbientGlowEnabled] = useState(true);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -150,6 +153,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     if (visible) {
       setNetworkMode(getSavedNetworkMode());
       setConcurrentLimit(queueService.getMaxConcurrentDownloads());
+      getAmbientGlowEnabled().then(setIsAmbientGlowEnabled);
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
         Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 9, useNativeDriver: true }),
@@ -205,6 +209,20 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
     setConcurrentLimit(limit);
     await queueService.setMaxConcurrentDownloads(limit);
     showToast(`Concurrent downloads set to ${limit}`);
+  };
+
+  // Toggle Ambient Glow
+  const handleToggleAmbientGlow = async () => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    const nextVal = !isAmbientGlowEnabled;
+    setIsAmbientGlowEnabled(nextVal);
+    await setAmbientGlowEnabled(nextVal);
+    if (onAmbientGlowChange) {
+      onAmbientGlowChange(nextVal);
+    }
+    showToast(nextVal ? 'Ambient Edge Glow enabled' : 'Ambient Edge Glow disabled');
   };
 
   // 1. Network Strategy Selection
@@ -388,7 +406,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                   Set maximum songs downloading simultaneously. Reducing this will auto-pause active downloads.
                 </Text>
 
-                {/* 1 to 4 Segmented Selector */}
                 <View style={styles.concurrencyRow}>
                   {CONCURRENT_OPTIONS.map((num) => {
                     const isSelected = concurrentLimit === num;
@@ -434,6 +451,48 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
                   },
                 ]}
               >
+                {/* Ambient Edge Glow Switch */}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={handleToggleAmbientGlow}
+                  style={[
+                    styles.itemRow,
+                    { borderBottomWidth: 1, borderBottomColor: tokens.outline + '14' },
+                  ]}
+                >
+                  <View style={[styles.itemIconCircle, { backgroundColor: tokens.primaryContainer }]}>
+                    <Icon name="sparkles" size={18} color={tokens.primary} />
+                  </View>
+                  <View style={styles.itemTextCol}>
+                    <Text style={[styles.itemTitle, { color: tokens.onSurface }]}>Ambient Edge Glow</Text>
+                    <Text style={[styles.itemSubtitle, { color: tokens.onSurfaceVariant }]}>
+                      Pulsing OLED side bleed across all screens
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      width: 44,
+                      height: 24,
+                      borderRadius: 12,
+                      backgroundColor: isAmbientGlowEnabled ? tokens.primary : tokens.surfaceVariant,
+                      padding: 2,
+                      justifyContent: 'center',
+                      alignItems: isAmbientGlowEnabled ? 'flex-end' : 'flex-start',
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: '#FFFFFF',
+                      }}
+                    />
+                  </View>
+                </TouchableOpacity>
+
+                {/* Theme Palette */}
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => {

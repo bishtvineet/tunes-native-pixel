@@ -11,6 +11,8 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { BottomNavBar, RootTab } from './src/components/navigation/BottomNavBar';
 import { FullPlayerSheet } from './src/components/player/FullPlayerSheet';
 import { SettingsSheet } from './src/components/settings/SettingsSheet';
+import { AmbientEdgeGlow } from './src/components/common/AmbientEdgeGlow';
+import { AtmosphericBackground } from './src/components/common/AtmosphericBackground';
 import { HomeScreen } from './src/screens/home/HomeScreen';
 import { SearchScreen } from './src/screens/search/SearchScreen';
 import { LibraryScreen } from './src/screens/library/LibraryScreen';
@@ -21,6 +23,7 @@ import {
   deleteTrack,
   toggleTrackFavorite,
   getStorageStats,
+  getAmbientGlowEnabled,
 } from './src/services/storage';
 import { initNetworkMode } from './src/services/network';
 import type { Track, PlaybackContext } from './src/types';
@@ -33,6 +36,7 @@ function MainAppShell() {
   const [storageUsage, setStorageUsageStr] = useState('0.0 MB');
   const [isLoading, setIsLoading] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAmbientGlowEnabled, setIsAmbientGlowEnabled] = useState(true);
 
   const {
     currentTrack,
@@ -72,6 +76,8 @@ function MainAppShell() {
     const bootstrap = async () => {
       try {
         await initNetworkMode();
+        const glowPref = await getAmbientGlowEnabled();
+        setIsAmbientGlowEnabled(glowPref);
         await refreshLibrary();
       } finally {
         setIsLoading(false);
@@ -136,7 +142,6 @@ function MainAppShell() {
       style={[
         styles.root,
         {
-          backgroundColor: tokens.background,
           paddingTop: insets.top,
           paddingLeft: insets.left,
           paddingRight: insets.right,
@@ -148,6 +153,12 @@ function MainAppShell() {
         {...(Platform.OS === 'android' ? { backgroundColor: tokens.background } : {})}
       />
 
+      {/* Dynamic Themed Multi-Layer Gradient Backdrop */}
+      <AtmosphericBackground />
+
+      {/* Screen-Edge Ambient Light on Playback */}
+      <AmbientEdgeGlow isPlaying={isPlaying} enabled={isAmbientGlowEnabled} />
+
       <View style={styles.body}>
         {isLoading ? (
           <View style={styles.centerLoading}>
@@ -155,7 +166,6 @@ function MainAppShell() {
           </View>
         ) : (
           <>
-            {/* Kept permanently mounted in native view hierarchy */}
             <View
               style={[
                 styles.tabContainer,
@@ -225,6 +235,7 @@ function MainAppShell() {
         repeatMode={repeatMode}
         isShuffle={isShuffle}
         playbackContext={playbackContext}
+        isAmbientGlowEnabled={isAmbientGlowEnabled}
         onTogglePlay={togglePlay}
         onSeek={seek}
         onNext={nextTrack}
@@ -248,6 +259,7 @@ function MainAppShell() {
         onClose={() => setIsSettingsOpen(false)}
         storageUsage={storageUsage}
         onClearCache={refreshLibrary}
+        onAmbientGlowChange={(enabled) => setIsAmbientGlowEnabled(enabled)}
       />
     </View>
   );
