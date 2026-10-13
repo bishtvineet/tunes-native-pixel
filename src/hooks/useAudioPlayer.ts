@@ -25,7 +25,7 @@ export function useAudioPlayer() {
   const isTransitioningRef = useRef<boolean>(false);
   const statusSubscriptionRef = useRef<any>(null);
 
-  // Mutable refs for remote lock screen transport controls
+  // Mutable refs for lock screen remote commands
   const nextTrackRef = useRef<() => void>(() => {});
   const prevTrackRef = useRef<() => void>(() => {});
   const togglePlayRef = useRef<() => void>(() => {});
@@ -148,7 +148,7 @@ export function useAudioPlayer() {
         setIsPlaying(false);
         isPlayingRef.current = false;
 
-        // Ensure background audio session category is set
+        // Ensure background audio session category is forcefully claimed
         await configureBackgroundAudio();
 
         if (currentRequestId !== playRequestIdRef.current) {
@@ -156,20 +156,19 @@ export function useAudioPlayer() {
           return;
         }
 
-        // Initialize AudioPlayer
+        // Initialize AudioPlayer with lock screen metadata passed directly in creation options
         const newPlayer = createAudioPlayer(
-          { uri: track.fileUri },
-          { updateInterval: 1000 } as any
+          {
+            uri: track.fileUri,
+          },
+          {
+            updateInterval: 1000,
+          } as any
         );
 
         playerRef.current = newPlayer;
 
-        // Start playback immediately to claim the active audio session
-        newPlayer.play();
-        setIsPlaying(true);
-        isPlayingRef.current = true;
-
-        // Register Lock Screen MediaSession while actively playing
+        // Register Lock Screen MediaSession
         if (typeof (newPlayer as any).setActiveForLockScreen === 'function') {
           try {
             (newPlayer as any).setActiveForLockScreen(
@@ -194,17 +193,26 @@ export function useAudioPlayer() {
           }
         }
 
+        // Start playback
+        newPlayer.play();
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+
         // Remote action listeners for lock screen
         if (typeof (newPlayer as any).addListener === 'function') {
           try {
             (newPlayer as any).addListener('onRemotePlay', () => {
-              if (!isPlayingRef.current) {
-                togglePlayRef.current();
+              if (playerRef.current) {
+                playerRef.current.play();
+                setIsPlaying(true);
+                isPlayingRef.current = true;
               }
             });
             (newPlayer as any).addListener('onRemotePause', () => {
-              if (isPlayingRef.current) {
-                togglePlayRef.current();
+              if (playerRef.current) {
+                playerRef.current.pause();
+                setIsPlaying(false);
+                isPlayingRef.current = false;
               }
             });
             (newPlayer as any).addListener('onRemoteNextTrack', () => {
