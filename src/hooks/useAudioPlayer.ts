@@ -25,9 +25,10 @@ export function useAudioPlayer() {
   const isTransitioningRef = useRef<boolean>(false);
   const statusSubscriptionRef = useRef<any>(null);
 
-  // Mutable refs for lock screen remote commands
+  // Mutable refs for remote lock screen transport controls
   const nextTrackRef = useRef<() => void>(() => {});
   const prevTrackRef = useRef<() => void>(() => {});
+  const togglePlayRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     queueRef.current = queue;
@@ -84,9 +85,6 @@ export function useAudioPlayer() {
       const p = playerRef.current;
       playerRef.current = null;
       try {
-        if (typeof (p as any).setActiveForLockScreen === 'function') {
-          (p as any).setActiveForLockScreen(false);
-        }
         p.pause();
       } catch {}
     }
@@ -108,6 +106,10 @@ export function useAudioPlayer() {
       console.warn('[useAudioPlayer] togglePlay error:', err);
     }
   }, []);
+
+  useEffect(() => {
+    togglePlayRef.current = togglePlay;
+  }, [togglePlay]);
 
   const seek = useCallback((seconds: number) => {
     if (!playerRef.current) return;
@@ -146,6 +148,7 @@ export function useAudioPlayer() {
         setIsPlaying(false);
         isPlayingRef.current = false;
 
+        // Ensure background audio session category is set
         await configureBackgroundAudio();
 
         if (currentRequestId !== playRequestIdRef.current) {
@@ -153,7 +156,7 @@ export function useAudioPlayer() {
           return;
         }
 
-        // Initialize AudioPlayer with updateInterval for native scrubber updates
+        // Initialize AudioPlayer
         const newPlayer = createAudioPlayer(
           { uri: track.fileUri },
           { updateInterval: 1000 } as any
@@ -161,7 +164,12 @@ export function useAudioPlayer() {
 
         playerRef.current = newPlayer;
 
-        // Native Lock Screen MediaSession registration matching your working implementation
+        // Start playback immediately to claim the active audio session
+        newPlayer.play();
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+
+        // Register Lock Screen MediaSession while actively playing
         if (typeof (newPlayer as any).setActiveForLockScreen === 'function') {
           try {
             (newPlayer as any).setActiveForLockScreen(
@@ -169,23 +177,36 @@ export function useAudioPlayer() {
               {
                 title: track.title,
                 artist: track.artist,
+                albumTitle: 'Tunes',
                 artworkUrl: track.thumbnailUrl || undefined,
               },
               {
                 showNextTrack: true,
                 showPreviousTrack: true,
-                // showSeekForward: true,
-                // showSeekBackward: true,
+                showSeekForward: false,
+                showSeekBackward: false,
               }
             );
           } catch {
-            (newPlayer as any).setActiveForLockScreen(true);
+            try {
+              (newPlayer as any).setActiveForLockScreen(true);
+            } catch {}
           }
         }
 
-        // Remote action listeners for lock screen transport buttons
+        // Remote action listeners for lock screen
         if (typeof (newPlayer as any).addListener === 'function') {
           try {
+            (newPlayer as any).addListener('onRemotePlay', () => {
+              if (!isPlayingRef.current) {
+                togglePlayRef.current();
+              }
+            });
+            (newPlayer as any).addListener('onRemotePause', () => {
+              if (isPlayingRef.current) {
+                togglePlayRef.current();
+              }
+            });
             (newPlayer as any).addListener('onRemoteNextTrack', () => {
               nextTrackRef.current();
             });
@@ -233,10 +254,6 @@ export function useAudioPlayer() {
         if (typeof newPlayer.addListener === 'function') {
           statusSubscriptionRef.current = newPlayer.addListener('playbackStatusUpdate', handleStatus);
         }
-
-        newPlayer.play();
-        setIsPlaying(true);
-        isPlayingRef.current = true;
       } catch (err) {
         console.error('[useAudioPlayer] playTrack critical error:', err);
       } finally {
