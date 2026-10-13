@@ -5,7 +5,15 @@ import { formatDuration } from '../utils/audio';
 
 const TRACKS_METADATA_KEY = 'tunes_native_tracks_meta';
 const FAVORITES_KEY = 'tunes_favorites';
+const LIBRARIES_KEY = 'tunes_custom_libraries';
 const TRACKS_DIR = `${FileSystem.documentDirectory}tracks/`;
+
+export interface CustomLibrary {
+  id: string;
+  name: string;
+  trackIds: string[];
+  createdAt: number;
+}
 
 // Ensure tracks directory exists on physical disk
 const ensureDirectoryExists = async (): Promise<void> => {
@@ -41,7 +49,6 @@ export const getAllTracks = async (): Promise<Track[]> => {
 
     return list
       .map((track) => {
-        // Self-heal previously saved tracks that have '--:--' or missing duration formatting
         let formatted = track.durationFormatted;
         if ((!formatted || formatted === '--:--') && track.duration && track.duration > 0) {
           formatted = formatDuration(track.duration);
@@ -93,14 +100,12 @@ export const deleteTrack = async (id: string): Promise<void> => {
     const trackToDelete = existing.find((t) => t.id === id);
 
     if (trackToDelete) {
-      // 1. Delete local audio file
       if (trackToDelete.fileUri) {
         const fileInfo = await FileSystem.getInfoAsync(trackToDelete.fileUri);
         if (fileInfo.exists) {
           await FileSystem.deleteAsync(trackToDelete.fileUri, { idempotent: true });
         }
       }
-      // 2. Delete local artwork image file if stored on disk
       if (trackToDelete.thumbnailUrl && trackToDelete.thumbnailUrl.startsWith('file://')) {
         const thumbInfo = await FileSystem.getInfoAsync(trackToDelete.thumbnailUrl);
         if (thumbInfo.exists) {
@@ -120,6 +125,14 @@ export const deleteTrack = async (id: string): Promise<void> => {
         JSON.stringify(favs.filter((itemId) => itemId !== id))
       );
     }
+
+    // Clean up track ID references from custom libraries
+    const libs = await getCustomLibraries();
+    const updatedLibs = libs.map((l) => ({
+      ...l,
+      trackIds: l.trackIds.filter((tId) => tId !== id),
+    }));
+    await AsyncStorage.setItem(LIBRARIES_KEY, JSON.stringify(updatedLibs));
   } catch (err) {
     console.error('[Storage] Failed to delete track:', err);
   }
@@ -230,15 +243,12 @@ export const findDuplicateTrack = async (preview: {
     const cleanChannel = (preview.channel || '').trim().toLowerCase();
 
     for (const t of tracks) {
-      // 1. Direct ID match
       if (preview.id && t.id === preview.id) {
         return t;
       }
-      // 2. Direct Thumbnail match
       if (preview.thumbnail && t.thumbnailUrl && t.thumbnailUrl === preview.thumbnail) {
         return t;
       }
-      // 3. Title + Channel / Artist match (ignoring duration)
       if (cleanTitle && cleanChannel) {
         const tTitle = (t.title || '').trim().toLowerCase();
         const tArtist = (t.artist || '').trim().toLowerCase();
@@ -251,4 +261,63 @@ export const findDuplicateTrack = async (preview: {
   } catch {
     return null;
   }
+};
+
+// ─── Custom Libraries (Playlists / Category Folders) ───
+
+export const getCustomLibraries = async (): Promise<CustomLibrary[]> => {
+  try {
+    const raw = await AsyncStorage.getItem(LIBRARIES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const createCustomLibrary = async (name: string): Promise<CustomLibrary> => {
+  const cleanName = name.trim();
+  if (!cleanName) throw new Error('Library name cannot be empty');
+
+  const libs = await getCustomLibraries();
+  const newLib: CustomLibrary = {
+    id: `lib_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    name: cleanName,
+    trackIds: [],
+    createdAt: Date.now(),
+  };
+
+  const updated = [newLib, ...libs];
+  await AsyncStorage.setItem(LIBRARIES_KEY, JSON.stringify(updated));
+  return newLib;
+};
+
+export const deleteCustomLibrary = async (id: string): Promise<void> => {
+  const libs = await getCustomLibraries();
+  const filtered = libs.filter((l) => l.id !== id);
+  await AsyncStorage.setItem(LIBRARIES_KEY, JSON.stringify(filtered));
+};
+
+export const toggleTrackInLibrary = async (
+  libraryId: string,
+  trackId: string
+): Promise<boolean> => {
+  const libs = await getCustomLibraries();
+  let isNowIncluded = false;
+
+  const updated = libs.map((lib) => {
+    if (lib.id === libraryId) {
+      const exists = lib.trackIds.includes(trackId);
+      isNowIncluded = !exists;
+      return {
+        ...lib,
+        trackIds: exists
+          ? lib.trackIds.filter((tId) => tId !== trackId)
+          : [...lib.trackIds, trackId],
+      };
+    }
+    return lib;
+  });
+
+  await AsyncStorage.setItem(LIBRARIES_KEY, JSON.stringify(updated));
+  return isNowIncluded;
 };

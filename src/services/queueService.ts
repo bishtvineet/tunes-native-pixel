@@ -3,6 +3,7 @@ import { fetchVideoInfo, downloadAudioStream } from './api';
 import type { VideoInfo, Track } from '../types';
 
 const QUEUE_STORAGE_KEY = 'tunes_download_queue';
+const MAX_CONCURRENT_KEY = 'tunes_max_concurrent_downloads';
 
 export type QueueItemStatus =
   | 'fetching_info'
@@ -33,8 +34,9 @@ type TrackSavedCallback = (track: Track) => Promise<void>;
 class QueueService {
   private queue: QueueItem[] = [];
   private listeners: Set<QueueListener> = new Set();
-  private isProcessing = false;
   private abortControllers: Map<string, AbortController> = new Map();
+  private activeDownloads: Set<string> = new Set();
+  private maxConcurrentDownloads = 1;
   private onTrackSavedCallback: TrackSavedCallback | null = null;
   private isInitialized = false;
 
@@ -51,10 +53,20 @@ class QueueService {
     this.isInitialized = true;
 
     try {
-      const raw = await AsyncStorage.getItem(QUEUE_STORAGE_KEY);
-      if (raw) {
-        const parsed: QueueItem[] = JSON.parse(raw);
-        // If app was killed while downloading, mark paused
+      const [rawQueue, rawLimit] = await Promise.all([
+        AsyncStorage.getItem(QUEUE_STORAGE_KEY),
+        AsyncStorage.getItem(MAX_CONCURRENT_KEY),
+      ]);
+
+      if (rawLimit) {
+        const parsedLimit = parseInt(rawLimit, 10);
+        if (!isNaN(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 4) {
+          this.maxConcurrentDownloads = parsedLimit;
+        }
+      }
+
+      if (rawQueue) {
+        const parsed: QueueItem[] = JSON.parse(rawQueue);
         this.queue = parsed.map((item) => {
           if (item.status === 'downloading' || item.status === 'fetching_info') {
             return {
@@ -69,6 +81,39 @@ class QueueService {
       }
     } catch (err) {
       console.warn('[QueueService] Boot load error:', err);
+    }
+  }
+
+  public getMaxConcurrentDownloads(): number {
+    return this.maxConcurrentDownloads;
+  }
+
+  public async setMaxConcurrentDownloads(limit: number): Promise<void> {
+    const clamped = Math.max(1, Math.min(4, Math.floor(limit)));
+    this.maxConcurrentDownloads = clamped;
+    await AsyncStorage.setItem(MAX_CONCURRENT_KEY, clamped.toString()).catch(() => {});
+
+    // If limit was decreased, scale down active downloads
+    if (this.activeDownloads.size > clamped) {
+      const activeArray = Array.from(this.activeDownloads);
+      const excessCount = this.activeDownloads.size - clamped;
+      // Abort the most recently started active downloads
+      const toPause = activeArray.slice(-excessCount);
+
+      for (const id of toPause) {
+        const controller = this.abortControllers.get(id);
+        if (controller) {
+          controller.abort();
+          this.abortControllers.delete(id);
+        }
+        this.activeDownloads.delete(id);
+        this.updateItem(id, {
+          status: 'pending',
+          statusText: 'In queue...',
+        });
+      }
+    } else {
+      this.checkAndProcessNext();
     }
   }
 
@@ -122,7 +167,7 @@ class QueueService {
     if (!hasInfoAlready) {
       this.fetchInfoImmediately(newId, cleanUrl);
     } else {
-      setTimeout(() => this.processNext(), 50);
+      this.checkAndProcessNext();
     }
   }
 
@@ -137,7 +182,7 @@ class QueueService {
         status: 'pending',
         statusText: 'In queue...',
       });
-      setTimeout(() => this.processNext(), 50);
+      this.checkAndProcessNext();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch details';
       this.updateItem(itemId, {
@@ -145,31 +190,39 @@ class QueueService {
         errorMessage: msg,
         statusText: 'Meta fetch error',
       });
+      this.checkAndProcessNext();
     }
   }
 
-  public async processNext() {
-    if (this.isProcessing) return;
+  // Token-Bucket: spawns download tasks up to maxConcurrentDownloads limit
+  public checkAndProcessNext() {
+    while (this.activeDownloads.size < this.maxConcurrentDownloads) {
+      const nextItem = this.queue.find(
+        (item) => item.status === 'pending' && !this.activeDownloads.has(item.id)
+      );
 
-    const nextItem = this.queue.find((item) => item.status === 'pending');
-    if (!nextItem) return;
+      if (!nextItem) break;
+      this.startDownloadTask(nextItem);
+    }
+  }
 
-    this.isProcessing = true;
+  private async startDownloadTask(item: QueueItem) {
     const controller = new AbortController();
-    this.abortControllers.set(nextItem.id, controller);
+    this.abortControllers.set(item.id, controller);
+    this.activeDownloads.add(item.id);
 
     try {
-      this.updateItem(nextItem.id, {
+      this.updateItem(item.id, {
         status: 'downloading',
         statusText: 'Downloading stream...',
         progressPercent: 10,
       });
 
       const track = await downloadAudioStream(
-        nextItem.url,
-        nextItem.videoInfo,
+        item.url,
+        item.videoInfo,
         (progress) => {
-          this.updateItem(nextItem.id, {
+          this.updateItem(item.id, {
             progressPercent: Math.max(10, progress.percent),
             statusText: progress.statusText,
           });
@@ -183,7 +236,7 @@ class QueueService {
         await this.onTrackSavedCallback(track);
       }
 
-      this.updateItem(nextItem.id, {
+      this.updateItem(item.id, {
         status: 'completed',
         durationFormatted: track.durationFormatted,
         statusText: 'Saved to library',
@@ -191,22 +244,19 @@ class QueueService {
       });
     } catch (err: unknown) {
       if (controller.signal.aborted) {
-        this.updateItem(nextItem.id, {
-          status: 'paused',
-          statusText: 'Paused by user',
-        });
+        // Handled directly inside cancel/pause/scale logic
       } else {
         const msg = err instanceof Error ? err.message : 'Download failed';
-        this.updateItem(nextItem.id, {
+        this.updateItem(item.id, {
           status: 'error',
           errorMessage: msg,
           statusText: msg,
         });
       }
     } finally {
-      this.abortControllers.delete(nextItem.id);
-      this.isProcessing = false;
-      setTimeout(() => this.processNext(), 150);
+      this.abortControllers.delete(item.id);
+      this.activeDownloads.delete(item.id);
+      setTimeout(() => this.checkAndProcessNext(), 50);
     }
   }
 
@@ -216,10 +266,14 @@ class QueueService {
       controller.abort();
       this.abortControllers.delete(id);
     }
+    this.activeDownloads.delete(id);
+
     this.updateItem(id, {
       status: 'paused',
       statusText: 'Paused',
     });
+
+    setTimeout(() => this.checkAndProcessNext(), 50);
   }
 
   public resumeItem(id: string) {
@@ -239,7 +293,7 @@ class QueueService {
         statusText: 'Queued',
         errorMessage: undefined,
       });
-      setTimeout(() => this.processNext(), 50);
+      this.checkAndProcessNext();
     }
   }
 
@@ -249,8 +303,11 @@ class QueueService {
       controller.abort();
       this.abortControllers.delete(id);
     }
+    this.activeDownloads.delete(id);
     this.queue = this.queue.filter((item) => item.id !== id);
     this.notify();
+
+    setTimeout(() => this.checkAndProcessNext(), 50);
   }
 
   public bulkResume(ids: string[]) {
@@ -275,7 +332,7 @@ class QueueService {
       return item;
     });
     this.notify();
-    setTimeout(() => this.processNext(), 100);
+    setTimeout(() => this.checkAndProcessNext(), 50);
   }
 
   public bulkRemove(ids: string[]) {
@@ -285,9 +342,11 @@ class QueueService {
         controller.abort();
         this.abortControllers.delete(id);
       }
+      this.activeDownloads.delete(id);
     });
     this.queue = this.queue.filter((item) => !ids.includes(item.id));
     this.notify();
+    setTimeout(() => this.checkAndProcessNext(), 50);
   }
 }
 

@@ -9,21 +9,28 @@ import type { Track } from '../../types';
 interface SongCardProps {
   song: Track;
   isPlaying?: boolean;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   onToggleFavorite?: () => void;
   onDelete?: () => void;
+  onAddToLibrary?: () => void;
 }
 
 export const SongCard: React.FC<SongCardProps> = ({
   song,
   isPlaying = false,
+  isSelectionMode = false,
+  isSelected = false,
   onPress,
+  onLongPress,
   onToggleFavorite,
   onDelete,
+  onAddToLibrary,
 }) => {
   const { tokens, shapes } = useTheme();
 
-  // Robust duration calculation: if durationFormatted is '--:--' or missing, compute from duration
   const displayDuration = React.useMemo(() => {
     if (song.durationFormatted && song.durationFormatted !== '--:--') {
       return song.durationFormatted;
@@ -37,16 +44,41 @@ export const SongCard: React.FC<SongCardProps> = ({
   return (
     <M3Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
       pressedScale={0.98}
       style={[
         styles.cardContainer,
         {
-          backgroundColor: isPlaying ? tokens.surfaceVariant : tokens.surface,
+          backgroundColor: isSelected
+            ? tokens.primaryContainer + '30'
+            : isPlaying
+            ? tokens.surfaceVariant
+            : tokens.surface,
           borderRadius: shapes.md,
-          borderColor: isPlaying ? tokens.primary : 'rgba(255, 255, 255, 0.05)',
+          borderColor: isSelected
+            ? tokens.primary
+            : isPlaying
+            ? tokens.primary
+            : 'rgba(255, 255, 255, 0.05)',
         },
       ]}
     >
+      {/* Leading Checkbox when in Multi-Select Mode */}
+      {isSelectionMode ? (
+        <View
+          style={[
+            styles.selectionCheckbox,
+            {
+              borderColor: isSelected ? tokens.primary : tokens.outline + '55',
+              backgroundColor: isSelected ? tokens.primary : 'transparent',
+              borderRadius: shapes.sm,
+            },
+          ]}
+        >
+          {isSelected && <Icon name="check" size={13} color="#FFFFFF" />}
+        </View>
+      ) : null}
+
       <View
         style={[
           styles.artWrapper,
@@ -68,7 +100,16 @@ export const SongCard: React.FC<SongCardProps> = ({
       <View style={styles.metaContainer}>
         <Text
           numberOfLines={1}
-          style={[styles.title, { color: isPlaying ? tokens.primary : tokens.onSurface }]}
+          style={[
+            styles.title,
+            {
+              color: isSelected
+                ? tokens.primary
+                : isPlaying
+                ? tokens.primary
+                : tokens.onSurface,
+            },
+          ]}
         >
           {song.title}
         </Text>
@@ -77,23 +118,32 @@ export const SongCard: React.FC<SongCardProps> = ({
         </Text>
       </View>
 
-      <View style={styles.actionRow}>
-        {onToggleFavorite && (
-          <M3Pressable onPress={onToggleFavorite} style={styles.iconBtn}>
-            <Icon
-              name={song.isFavorite ? 'heart-filled' : 'heart-outline'}
-              size={18}
-              color={song.isFavorite ? tokens.accentPink : tokens.onSurfaceVariant}
-            />
-          </M3Pressable>
-        )}
+      {/* Show Standard Row Actions only when NOT in Selection Mode */}
+      {!isSelectionMode ? (
+        <View style={styles.actionRow}>
+          {onAddToLibrary && (
+            <M3Pressable onPress={onAddToLibrary} style={styles.iconBtn}>
+              <Icon name="queue" size={17} color={tokens.onSurfaceVariant} />
+            </M3Pressable>
+          )}
 
-        {onDelete && (
-          <M3Pressable onPress={onDelete} style={styles.iconBtn}>
-            <Icon name="close" size={16} color={tokens.onSurfaceVariant} />
-          </M3Pressable>
-        )}
-      </View>
+          {onToggleFavorite && (
+            <M3Pressable onPress={onToggleFavorite} style={styles.iconBtn}>
+              <Icon
+                name={song.isFavorite ? 'heart-filled' : 'heart-outline'}
+                size={18}
+                color={song.isFavorite ? tokens.accentPink : tokens.onSurfaceVariant}
+              />
+            </M3Pressable>
+          )}
+
+          {onDelete && (
+            <M3Pressable onPress={onDelete} style={styles.iconBtn}>
+              <Icon name="close" size={16} color={tokens.onSurfaceVariant} />
+            </M3Pressable>
+          )}
+        </View>
+      ) : null}
     </M3Pressable>
   );
 };
@@ -106,6 +156,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginVertical: 4,
     borderWidth: 1.5,
+  },
+  selectionCheckbox: {
+    width: 22,
+    height: 22,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
   },
   artWrapper: {
     width: 48,
@@ -137,9 +195,9 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
   },
   iconBtn: {
-    padding: 8,
+    padding: 6,
   },
 });

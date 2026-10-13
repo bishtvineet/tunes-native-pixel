@@ -35,7 +35,6 @@ const setupPlayer = async (): Promise<void> => {
     });
     isPlayerSetup = true;
   } catch {
-    // Already setup
     isPlayerSetup = true;
   }
 };
@@ -51,11 +50,24 @@ export function useAudioPlayer() {
   const currentTrackRef = useRef<Track | null>(null);
   const repeatModeRef = useRef<RepeatMode>('off');
   const isShuffleRef = useRef<boolean>(false);
+  const isManualSkipRef = useRef<boolean>(false);
 
   const playbackState = usePlaybackState();
-  const { position, duration: trackPlayerDuration } = useProgress(500);
+  const { position, duration: trackPlayerDuration } = useProgress(300);
 
-  const isPlaying = playbackState.state === State.Playing;
+  const positionRef = useRef<number>(0);
+  const durationRef = useRef<number>(0);
+
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  useEffect(() => {
+    durationRef.current = trackPlayerDuration;
+  }, [trackPlayerDuration]);
+
+  const currentState = playbackState.state;
+  const isPlaying = currentState === State.Playing;
 
   useEffect(() => {
     queueRef.current = queue;
@@ -77,21 +89,66 @@ export function useAudioPlayer() {
     setupPlayer().catch(console.error);
   }, []);
 
-  // Update current track when the active track changes in TrackPlayer
+  const syncNativeRepeatMode = useCallback(async (mode: RepeatMode) => {
+    try {
+      if (mode === 'one') {
+        await TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Track);
+      } else if (mode === 'all') {
+        await TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Queue);
+      } else {
+        await TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Off);
+      }
+    } catch (e) {
+      console.warn('[useAudioPlayer] syncNativeRepeatMode error:', e);
+    }
+  }, []);
+
+  // Track transitions listener
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
     if (event.track) {
       const active = queueRef.current.find((t) => t.id === event.track?.id);
       if (active) {
         setCurrentTrack(active);
       }
+
+      // If repeatMode is OFF and this was an automatic end-of-track transition, stop playback
+      if (
+        event.lastPosition !== undefined &&
+        event.lastPosition > 0 &&
+        !isManualSkipRef.current &&
+        repeatModeRef.current === 'off'
+      ) {
+        await TrackPlayer.pause();
+        await TrackPlayer.seekTo(0);
+      }
+
+      // Reset manual skip flag
+      isManualSkipRef.current = false;
     }
   });
 
-  // Track finished listener to handle repeat modes
+  // Handle queue end
   useTrackPlayerEvents([Event.PlaybackQueueEnded], async () => {
-    if (repeatModeRef.current === 'all' && queueRef.current.length > 0) {
-      await TrackPlayer.skip(0);
+    const currentMode = repeatModeRef.current;
+    const currentList = queueRef.current;
+
+    if (currentMode === 'one') {
+      await TrackPlayer.seekTo(0);
       await TrackPlayer.play();
+      return;
+    }
+
+    if (currentMode === 'all' && currentList.length > 0) {
+      isManualSkipRef.current = true;
+      await TrackPlayer.skip(0);
+      await TrackPlayer.seekTo(0);
+      await TrackPlayer.play();
+      return;
+    }
+
+    if (currentMode === 'off') {
+      await TrackPlayer.pause();
+      await TrackPlayer.seekTo(0);
     }
   });
 
@@ -140,16 +197,30 @@ export function useAudioPlayer() {
 
       const targetIndex = activeList.findIndex((t) => t.id === track.id);
       if (targetIndex > 0) {
+        isManualSkipRef.current = true;
         await TrackPlayer.skip(targetIndex);
       }
 
+      await syncNativeRepeatMode(repeatModeRef.current);
       await TrackPlayer.play();
     },
-    []
+    [syncNativeRepeatMode]
   );
 
   const togglePlay = useCallback(async () => {
     const state = await TrackPlayer.getPlaybackState();
+    const currPos = positionRef.current;
+    const currDur = durationRef.current;
+
+    const isAtEnd = currDur > 0 && currPos >= currDur - 0.8;
+    const isFinishedState = state.state === State.Ended || state.state === State.Stopped;
+
+    if (isAtEnd || isFinishedState) {
+      await TrackPlayer.seekTo(0);
+      await TrackPlayer.play();
+      return;
+    }
+
     if (state.state === State.Playing) {
       await TrackPlayer.pause();
     } else {
@@ -168,29 +239,35 @@ export function useAudioPlayer() {
       return;
     }
 
+    isManualSkipRef.current = true;
     try {
       await TrackPlayer.skipToNext();
       await TrackPlayer.play();
     } catch {
       if (repeatModeRef.current === 'all' && queueRef.current.length > 0) {
         await TrackPlayer.skip(0);
+        await TrackPlayer.seekTo(0);
         await TrackPlayer.play();
+      } else {
+        await TrackPlayer.seekTo(0);
+        await TrackPlayer.pause();
       }
     }
   }, []);
 
   const prevTrack = useCallback(async () => {
-    if (position > 3) {
+    if (positionRef.current > 3) {
       await TrackPlayer.seekTo(0);
       return;
     }
+    isManualSkipRef.current = true;
     try {
       await TrackPlayer.skipToPrevious();
       await TrackPlayer.play();
     } catch {
       await TrackPlayer.seekTo(0);
     }
-  }, [position]);
+  }, []);
 
   const toggleRepeat = useCallback(async () => {
     setRepeatMode((prev) => {
@@ -199,16 +276,10 @@ export function useAudioPlayer() {
       else if (prev === 'all') next = 'one';
       else next = 'off';
 
-      if (next === 'one') {
-        TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Track).catch(() => {});
-      } else if (next === 'all') {
-        TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Queue).catch(() => {});
-      } else {
-        TrackPlayer.setRepeatMode(TrackPlayerRepeatMode.Off).catch(() => {});
-      }
+      syncNativeRepeatMode(next);
       return next;
     });
-  }, []);
+  }, [syncNativeRepeatMode]);
 
   const toggleShuffle = useCallback(() => {
     setIsShuffle((prev) => {

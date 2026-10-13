@@ -9,12 +9,14 @@ import {
   Dimensions,
   Animated,
   Easing,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../../components/common/Icon';
 import { SongCard } from '../../components/cards/SongCard';
 import { M3Pressable } from '../../components/common/M3Pressable';
 import type { Track, PlaybackContext } from '../../types';
+import * as Haptics from 'expo-haptics';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.52, 200);
@@ -99,6 +101,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     } else {
       onPlayTrack(track, 'All', tracks);
     }
+  };
+
+  const confirmDeleteTrack = (track: Track) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    Alert.alert(
+      'Delete Song',
+      `Are you sure you want to delete "${track.title}" from offline storage?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            } catch {}
+            onDeleteTrack(track.id);
+          },
+        },
+      ]
+    );
   };
 
   const titleOpacity = morphProgress.interpolate({
@@ -235,7 +260,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   closeSearch();
                 }}
                 onToggleFavorite={() => onToggleFavorite(track.id)}
-                onDelete={() => onDeleteTrack(track.id)}
+                onDelete={() => confirmDeleteTrack(track)}
               />
             ))
           )}
@@ -409,7 +434,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 isPlaying={currentTrack?.id === track.id && isPlaying}
                 onPress={() => handleTrackCardPress(track)}
                 onToggleFavorite={() => onToggleFavorite(track.id)}
-                onDelete={() => onDeleteTrack(track.id)}
+                onDelete={() => confirmDeleteTrack(track)}
               />
             ))}
           </View>

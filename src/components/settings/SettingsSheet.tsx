@@ -23,6 +23,7 @@ import {
 } from '../../services/network';
 import { pingRenderHealth, syncCookiesToBackend } from '../../services/api';
 import { pruneStaleStorage } from '../../services/storage';
+import { queueService } from '../../services/queueService';
 import {
   sha256,
   ADMIN_PASSWORD_HASH,
@@ -93,6 +94,8 @@ const PALETTE_OPTIONS: PaletteOption[] = [
   },
 ];
 
+const CONCURRENT_OPTIONS = [1, 2, 3, 4];
+
 export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   visible,
   onClose,
@@ -110,6 +113,9 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   const [isNetworkOpen, setIsNetworkOpen] = useState(false);
   const [isCookieSyncOpen, setIsCookieSyncOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Download Concurrency State
+  const [concurrentLimit, setConcurrentLimit] = useState(1);
 
   // Functional Feature States
   const [networkMode, setNetworkMode] = useState<NetworkMode>('cloud');
@@ -143,6 +149,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
   useEffect(() => {
     if (visible) {
       setNetworkMode(getSavedNetworkMode());
+      setConcurrentLimit(queueService.getMaxConcurrentDownloads());
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 220, useNativeDriver: true }),
         Animated.spring(slideAnim, { toValue: 0, tension: 65, friction: 9, useNativeDriver: true }),
@@ -189,6 +196,16 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
       },
     })
   ).current;
+
+  // Change Concurrency Limit
+  const handleSelectConcurrentLimit = async (limit: number) => {
+    try {
+      Haptics.selectionAsync();
+    } catch {}
+    setConcurrentLimit(limit);
+    await queueService.setMaxConcurrentDownloads(limit);
+    showToast(`Concurrent downloads set to ${limit}`);
+  };
 
   // 1. Network Strategy Selection
   const handleSelectNetworkMode = async (mode: NetworkMode) => {
@@ -296,7 +313,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
       statusBarTranslucent
     >
       <View style={styles.modalRoot}>
-        {/* Scrim (Tap outside to dismiss) */}
         <Animated.View
           style={[
             styles.scrim,
@@ -306,7 +322,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={handleClose} />
         </Animated.View>
 
-        {/* Sliding Sheet */}
         <Animated.View
           style={[
             styles.sheetContainer,
@@ -319,7 +334,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
             },
           ]}
         >
-          {/* Header & Swipe Area */}
           <View {...panResponder.panHandlers} style={styles.swipeableHeaderArea}>
             <View style={styles.handleRow}>
               <View style={[styles.dragHandle, { backgroundColor: tokens.outline + '40' }]} />
@@ -329,7 +343,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               <View>
                 <Text style={[styles.headerTitle, { color: tokens.onSurface }]}>Settings</Text>
                 <Text style={[styles.headerSubtitle, { color: tokens.onSurfaceVariant }]}>
-                  Preferences & Connectivity
+                  Preferences & Concurrency
                 </Text>
               </View>
 
@@ -350,7 +364,64 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            {/* ─── 1. LOOK & FEEL ─── */}
+            {/* ─── 1. DOWNLOAD CONCURRENCY ─── */}
+            <View style={styles.sectionBlock}>
+              <Text style={[styles.sectionHeading, { color: tokens.primary }]}>DOWNLOAD CONCURRENCY</Text>
+              <View
+                style={[
+                  styles.cardGroup,
+                  {
+                    backgroundColor: tokens.surfaceVariant + '35',
+                    borderRadius: shapes.lg,
+                    borderColor: tokens.outline + '18',
+                    padding: 14,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <Text style={[styles.itemTitle, { color: tokens.onSurface }]}>Simultaneous Downloads</Text>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: tokens.primary }}>
+                    {concurrentLimit} at a time
+                  </Text>
+                </View>
+                <Text style={[styles.itemSubtitle, { color: tokens.onSurfaceVariant, marginBottom: 12 }]}>
+                  Set maximum songs downloading simultaneously. Reducing this will auto-pause active downloads.
+                </Text>
+
+                {/* 1 to 4 Segmented Selector */}
+                <View style={styles.concurrencyRow}>
+                  {CONCURRENT_OPTIONS.map((num) => {
+                    const isSelected = concurrentLimit === num;
+                    return (
+                      <TouchableOpacity
+                        key={num}
+                        activeOpacity={0.8}
+                        onPress={() => handleSelectConcurrentLimit(num)}
+                        style={[
+                          styles.concurrentOptionBtn,
+                          {
+                            backgroundColor: isSelected ? tokens.primary : tokens.surfaceVariant + '50',
+                            borderColor: isSelected ? tokens.primary : tokens.outline + '35',
+                            borderRadius: shapes.pill,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.concurrentOptionText,
+                            { color: isSelected ? '#FFFFFF' : tokens.onSurface },
+                          ]}
+                        >
+                          {num} {num === 1 ? 'Song' : 'Songs'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+
+            {/* ─── 2. LOOK & FEEL ─── */}
             <View style={styles.sectionBlock}>
               <Text style={[styles.sectionHeading, { color: tokens.primary }]}>LOOK & FEEL</Text>
               <View
@@ -437,7 +508,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               </View>
             </View>
 
-            {/* ─── 2. NETWORK & RELAY ROUTE ─── */}
+            {/* ─── 3. NETWORK & RELAY ROUTE ─── */}
             <View style={styles.sectionBlock}>
               <Text style={[styles.sectionHeading, { color: tokens.primary }]}>NETWORK & RELAY ROUTE</Text>
               <View
@@ -516,7 +587,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               </View>
             </View>
 
-            {/* ─── 3. SESSION & COOKIES ─── */}
+            {/* ─── 4. SESSION & COOKIES ─── */}
             <View style={styles.sectionBlock}>
               <Text style={[styles.sectionHeading, { color: tokens.primary }]}>SESSION & COOKIES</Text>
               <View
@@ -600,7 +671,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               </View>
             </View>
 
-            {/* ─── 4. ADMIN & AUTHORISATION ─── */}
+            {/* ─── 5. ADMIN & AUTHORISATION ─── */}
             <View style={styles.sectionBlock}>
               <Text style={[styles.sectionHeading, { color: tokens.primary }]}>ADMIN & AUTHORISATION</Text>
               <View
@@ -697,7 +768,7 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
             </View>
           </ScrollView>
 
-          {/* ─── BOTTOM ALIGNED ACTIONS BAR (Server & Storage tools) ─── */}
+          {/* Bottom Tools Dock */}
           <View
             style={[
               styles.bottomToolsDock,
@@ -708,7 +779,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
               },
             ]}
           >
-            {/* 1. Wake Server Container */}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handleWakeUpHost}
@@ -724,7 +794,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
 
             <View style={[styles.toolSeparator, { backgroundColor: tokens.outline + '20' }]} />
 
-            {/* 2. Check Updates */}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handleCheckUpdate}
@@ -740,7 +809,6 @@ export const SettingsSheet: React.FC<SettingsSheetProps> = ({
 
             <View style={[styles.toolSeparator, { backgroundColor: tokens.outline + '20' }]} />
 
-            {/* 3. Prune Orphan Storage */}
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handleCleanStorage}
@@ -841,6 +909,21 @@ const styles = StyleSheet.create({
   cardGroup: {
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  concurrencyRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  concurrentOptionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.2,
+  },
+  concurrentOptionText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   itemRow: {
     flexDirection: 'row',

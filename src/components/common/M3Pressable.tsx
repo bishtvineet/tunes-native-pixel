@@ -3,6 +3,7 @@ import { TouchableWithoutFeedback, Animated, ViewStyle, StyleProp } from 'react-
 
 interface M3PressableProps {
   onPress?: () => void;
+  onLongPress?: () => void;
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
   pressedScale?: number;
@@ -10,6 +11,7 @@ interface M3PressableProps {
 
 export const M3Pressable: React.FC<M3PressableProps> = ({
   onPress,
+  onLongPress,
   style,
   children,
   pressedScale = 0.94,
@@ -37,6 +39,7 @@ export const M3Pressable: React.FC<M3PressableProps> = ({
   return (
     <TouchableWithoutFeedback
       onPress={onPress}
+      onLongPress={onLongPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
