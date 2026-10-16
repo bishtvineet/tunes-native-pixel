@@ -1,10 +1,10 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { createAudioPlayer } from 'expo-audio';
 import type { VideoInfo, Track, ProgressCallbackData } from '../types';
 import { getApiConfig, getRenderUrl } from './network';
 import { getTrackFilePath, getTrackArtworkPath } from './storage';
+import { parseDurationToSeconds, formatDuration } from '../utils/audio';
 
-export { ProgressCallbackData };
+export { ProgressCallbackData, parseDurationToSeconds, formatDuration };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -15,91 +15,6 @@ const safeDecode = (str: string | null): string => {
   } catch {
     return str;
   }
-};
-
-export const parseDurationToSeconds = (input: any): number => {
-  if (!input) return 0;
-  if (typeof input === 'number') {
-    return input > 1000 ? Math.floor(input / 1000) : Math.floor(input);
-  }
-  if (typeof input === 'string') {
-    if (input.includes(':')) {
-      const parts = input.split(':').map((p) => parseInt(p, 10) || 0);
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-    }
-    const parsed = parseFloat(input);
-    if (!isNaN(parsed) && parsed > 0) {
-      return parsed > 1000 ? Math.floor(parsed / 1000) : Math.floor(parsed);
-    }
-  }
-  return 0;
-};
-
-export const formatDuration = (seconds: number | string | undefined | null): string => {
-  if (seconds === undefined || seconds === null) return '--:--';
-  if (typeof seconds === 'string' && seconds.includes(':')) return seconds.trim();
-
-  const total = typeof seconds === 'string' ? parseFloat(seconds) : seconds;
-  if (isNaN(total) || total <= 0) return '--:--';
-
-  const secsTotal = total > 1000 ? Math.floor(total / 1000) : Math.floor(total);
-  const mins = Math.floor(secsTotal / 60);
-  const secs = secsTotal % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-
-// Measures the real duration directly from the downloaded audio file
-const detectLocalAudioDuration = async (fileUri: string): Promise<number> => {
-  return new Promise((resolve) => {
-    let tempPlayer: any = null;
-    let timeout: any = null;
-
-    const cleanup = () => {
-      if (timeout) clearTimeout(timeout);
-      if (tempPlayer) {
-        try {
-          if (typeof tempPlayer.remove === 'function') tempPlayer.remove();
-          else if (typeof tempPlayer.release === 'function') tempPlayer.release();
-        } catch {}
-        tempPlayer = null;
-      }
-    };
-
-    timeout = setTimeout(() => {
-      cleanup();
-      resolve(0);
-    }, 1200);
-
-    try {
-      tempPlayer = createAudioPlayer({ uri: fileUri });
-      if (!tempPlayer) {
-        cleanup();
-        resolve(0);
-        return;
-      }
-
-      const immediateDur = typeof tempPlayer.duration === 'number' ? tempPlayer.duration : 0;
-      if (immediateDur > 0) {
-        cleanup();
-        resolve(immediateDur > 1000 ? Math.floor(immediateDur / 1000) : Math.floor(immediateDur));
-        return;
-      }
-
-      if (typeof tempPlayer.addListener === 'function') {
-        tempPlayer.addListener('playbackStatusUpdate', (status: any) => {
-          const sDur = status?.duration ?? tempPlayer?.duration ?? 0;
-          if (sDur > 0) {
-            cleanup();
-            resolve(sDur > 1000 ? Math.floor(sDur / 1000) : Math.floor(sDur));
-          }
-        });
-      }
-    } catch {
-      cleanup();
-      resolve(0);
-    }
-  });
 };
 
 export const pingRenderHealth = async (): Promise<{ ok: boolean; timeMs: number }> => {
@@ -118,7 +33,7 @@ export const pingRenderHealth = async (): Promise<{ ok: boolean; timeMs: number 
   }
 };
 
-// Lightweight info API (titles, channel, thumbnail only)
+// Lightweight info API (title, channel, thumbnail only)
 export const fetchVideoInfo = async (url: string, signal?: AbortSignal): Promise<VideoInfo> => {
   const { baseUrl, networkMode } = getApiConfig();
 
@@ -245,7 +160,7 @@ export const downloadAudioStream = async (
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      // ─── Cache Artwork Locally for Airplane / Offline / Lockscreen Mode ───
+      // Cache Artwork Locally for Airplane / Offline / Lockscreen Mode
       let localArtworkUri = remoteThumbUrl;
       if (remoteThumbUrl && remoteThumbUrl.startsWith('http')) {
         try {
@@ -260,21 +175,8 @@ export const downloadAudioStream = async (
         }
       }
 
-      onProgress?.({
-        percent: 90,
-        receivedBytes: uint8Array.length,
-        totalBytes: uint8Array.length,
-        statusText: 'Analyzing duration...',
-      });
-
-      // 1. Check if the download API provided duration in headers
-      let durationSeconds = parseDurationToSeconds(rawDuration);
-
-      // 2. If not in headers, measure the saved MP3 file directly
-      if (durationSeconds <= 0) {
-        durationSeconds = await detectLocalAudioDuration(targetFilePath);
-      }
-
+      // Check if download API provided duration in headers
+      const durationSeconds = parseDurationToSeconds(rawDuration);
       const formatted = formatDuration(durationSeconds);
 
       onProgress?.({

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useMemo, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { shapes, type Shapes } from './tokens/shapes';
 
 export type PaletteStyle =
   | 'TONAL_SPOT'
@@ -28,7 +29,7 @@ export interface ThemeTokens {
   accentPink: string;
 }
 
-const PALETTES: Record<PaletteStyle, ThemeTokens> = {
+export const PALETTES: Record<PaletteStyle, ThemeTokens> = {
   TONAL_SPOT: {
     primary: '#D0BCFF',
     onPrimary: '#381E72',
@@ -40,7 +41,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
     onSecondaryContainer: '#E8DEF8',
     surface: '#141218',
     onSurface: '#E6E0E9',
-    surfaceVariant: '#49454F',
+    surfaceVariant: '#26202E',
     onSurfaceVariant: '#CAC4D0',
     background: '#100D14',
     onBackground: '#E6E0E9',
@@ -58,7 +59,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
     onSecondaryContainer: '#FFD8E7',
     surface: '#171215',
     onSurface: '#EAE0E3',
-    surfaceVariant: '#504349',
+    surfaceVariant: '#2E1F27',
     onSurfaceVariant: '#D4C2C9',
     background: '#120D10',
     onBackground: '#EAE0E3',
@@ -76,7 +77,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
     onSecondaryContainer: '#D0E6F2',
     surface: '#101416',
     onSurface: '#E1E3E5',
-    surfaceVariant: '#40484C',
+    surfaceVariant: '#1D2A30',
     onSurfaceVariant: '#C0C8CD',
     background: '#0B0F11',
     onBackground: '#E1E3E5',
@@ -94,7 +95,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
     onSecondaryContainer: '#DDE7C6',
     surface: '#12140E',
     onSurface: '#E3E4DC',
-    surfaceVariant: '#44483E',
+    surfaceVariant: '#22291B',
     onSurfaceVariant: '#C4C8BB',
     background: '#0D100A',
     onBackground: '#E3E4DC',
@@ -112,7 +113,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
     onSecondaryContainer: '#F2DCFA',
     surface: '#151217',
     onSurface: '#E7E0E7',
-    surfaceVariant: '#4B444D',
+    surfaceVariant: '#2A1F2E',
     onSurfaceVariant: '#CCC3CE',
     background: '#100D12',
     onBackground: '#E7E0E7',
@@ -130,7 +131,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
     onSecondaryContainer: '#E2E2E2',
     surface: '#131313',
     onSurface: '#E2E2E2',
-    surfaceVariant: '#474747',
+    surfaceVariant: '#252525',
     onSurfaceVariant: '#C6C6C6',
     background: '#0E0E0E',
     onBackground: '#E2E2E2',
@@ -141,14 +142,7 @@ const PALETTES: Record<PaletteStyle, ThemeTokens> = {
 
 interface ThemeContextType {
   tokens: ThemeTokens;
-  shapes: {
-    xs: number;
-    sm: number;
-    md: number;
-    lg: number;
-    sheet: number;
-    pill: number;
-  };
+  shapes: Shapes;
   currentPalette: PaletteStyle;
   setPalette: (palette: PaletteStyle) => void;
 }
@@ -162,7 +156,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((saved) => {
-      if (saved && (saved in PALETTES)) {
+      if (saved && saved in PALETTES) {
         setCurrentPalette(saved as PaletteStyle);
       }
     });
@@ -175,18 +169,6 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const tokens = useMemo(() => PALETTES[currentPalette], [currentPalette]);
 
-  const shapes = useMemo(
-    () => ({
-      xs: 4,
-      sm: 8,
-      md: 16,
-      lg: 24,
-      sheet: 28,
-      pill: 999,
-    }),
-    []
-  );
-
   return (
     <ThemeContext.Provider value={{ tokens, shapes, currentPalette, setPalette }}>
       {children}
@@ -194,7 +176,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 };
 
-export const useTheme = () => {
+export const useTheme = (): ThemeContextType => {
   const context = useContext(ThemeContext);
   if (!context) {
     throw new Error('useTheme must be used within a ThemeProvider');

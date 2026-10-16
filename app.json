@@ -17,6 +17,7 @@
       }
     },
     "android": {
+      "package": "com.tunes.offline",
       "permissions": [
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
@@ -33,9 +34,19 @@
     },
     "plugins": [
       [
-        "expo-audio",
+        "expo-build-properties",
         {
-          "enableBackgroundPlayback": true
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "buildToolsVersion": "34.0.0",
+            "extraMavenRepos": [
+              "../node_modules/react-native-track-player/android"
+            ]
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
         }
       ]
     ]

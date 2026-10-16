@@ -1,7 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
-  Text,
   TextInput,
   ScrollView,
   Image,
@@ -15,6 +14,8 @@ import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../../components/common/Icon';
 import { SongCard } from '../../components/cards/SongCard';
 import { M3Pressable } from '../../components/common/M3Pressable';
+import { AppText } from '../../components/common/AppText';
+import { getElevation } from '../../theme/elevation';
 import type { Track, PlaybackContext } from '../../types';
 import * as Haptics from 'expo-haptics';
 
@@ -162,12 +163,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           pointerEvents={isSearchOpen ? 'none' : 'auto'}
         >
           <View>
-            <Text style={[styles.welcomeBadge, { color: tokens.onSurfaceVariant }]}>
+            <AppText variant="secondary" style={styles.welcomeBadge}>
               OFFLINE MUSIC
-            </Text>
-            <Text style={[styles.mainBrandTitle, { color: tokens.onSurface }]}>
-              LaviMusic
-            </Text>
+            </AppText>
+            <AppText style={styles.mainBrandTitle}>LaviMusic</AppText>
           </View>
 
           <M3Pressable
@@ -232,9 +231,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {isSearchOpen && searchQuery.trim().length > 0 ? (
         <View style={styles.searchResultsSection}>
           <View style={styles.resultsHeaderRow}>
-            <Text style={[styles.resultsLabel, { color: tokens.onSurfaceVariant }]}>
+            <AppText variant="secondary" style={styles.resultsLabel}>
               MATCHING SONGS ({searchResults.length})
-            </Text>
+            </AppText>
           </View>
 
           {searchResults.length === 0 ? (
@@ -245,9 +244,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               ]}
             >
               <Icon name="library" size={32} color={tokens.outline} />
-              <Text style={[styles.noMatchText, { color: tokens.onSurfaceVariant }]}>
+              <AppText variant="secondary" style={styles.noMatchText}>
                 No offline tracks match "{searchQuery}"
-              </Text>
+              </AppText>
             </View>
           ) : (
             searchResults.map((track) => (
@@ -282,9 +281,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               ]}
             >
               <Icon name="shuffle" size={15} color={tokens.primary} />
-              <Text style={[styles.quickChipText, { color: tokens.onSurface }]}>
-                Shuffle All
-              </Text>
+              <AppText style={styles.quickChipText}>Shuffle All</AppText>
             </M3Pressable>
 
             <M3Pressable
@@ -299,20 +296,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               ]}
             >
               <Icon name="heart-filled" size={15} color={tokens.accentPink} />
-              <Text style={[styles.quickChipText, { color: tokens.onSurface }]}>
+              <AppText style={styles.quickChipText}>
                 Favorites ({favoriteTracks.length})
-              </Text>
+              </AppText>
             </M3Pressable>
           </View>
 
           {/* ─── 4. Daily Discover Carousel ─── */}
           <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: tokens.onSurface }]}>
-              Daily Discover
-            </Text>
-            <Text style={[styles.sectionSubtitle, { color: tokens.onSurfaceVariant }]}>
+            <AppText style={styles.sectionTitle}>Daily Discover</AppText>
+            <AppText variant="secondary" style={styles.sectionSubtitle}>
               Curated from your downloads
-            </Text>
+            </AppText>
           </View>
 
           {featuredTracks.length === 0 ? (
@@ -327,12 +322,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               ]}
             >
               <Icon name="library" size={40} color={tokens.primary} />
-              <Text style={[styles.emptyDiscoverTitle, { color: tokens.onSurface }]}>
-                No offline audio yet
-              </Text>
-              <Text style={[styles.emptyDiscoverSub, { color: tokens.onSurfaceVariant }]}>
+              <AppText style={styles.emptyDiscoverTitle}>No offline audio yet</AppText>
+              <AppText variant="secondary" style={styles.emptyDiscoverSub}>
                 Tap the Download tab to download and listen to YouTube tracks offline.
-              </Text>
+              </AppText>
               <M3Pressable
                 onPress={() => onNavigateTab('Download')}
                 style={[
@@ -340,7 +333,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   { backgroundColor: tokens.primary, borderRadius: shapes.pill },
                 ]}
               >
-                <Text style={styles.emptyDiscoverBtnText}>Download Track</Text>
+                <AppText style={styles.emptyDiscoverBtnText}>Download Track</AppText>
               </M3Pressable>
             </View>
           ) : (
@@ -359,6 +352,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     onPress={() => handleTrackCardPress(item)}
                     style={[
                       styles.carouselCard,
+                      getElevation(2),
                       {
                         width: CAROUSEL_CARD_WIDTH,
                         backgroundColor: tokens.surface,
@@ -403,12 +397,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     </View>
 
                     <View style={styles.carouselMeta}>
-                      <Text numberOfLines={1} style={[styles.carouselTitle, { color: tokens.onSurface }]}>
+                      <AppText numberOfLines={1} style={styles.carouselTitle}>
                         {item.title}
-                      </Text>
-                      <Text numberOfLines={1} style={[styles.carouselSubtitle, { color: tokens.onSurfaceVariant }]}>
+                      </AppText>
+                      <AppText numberOfLines={1} variant="secondary" style={styles.carouselSubtitle}>
                         {item.artist}
-                      </Text>
+                      </AppText>
                     </View>
                   </M3Pressable>
                 );
@@ -418,11 +412,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
           {/* ─── 5. Recently Added Tracks ─── */}
           <View style={[styles.sectionHeader, { marginTop: 22 }]}>
-            <Text style={[styles.sectionTitle, { color: tokens.onSurface }]}>
-              Recently Added
-            </Text>
+            <AppText style={styles.sectionTitle}>Recently Added</AppText>
             <M3Pressable onPress={() => onNavigateTab('Library')}>
-              <Text style={[styles.seeAllLink, { color: tokens.primary }]}>View Library</Text>
+              <AppText variant="accent" style={styles.seeAllLink}>
+                View Library
+              </AppText>
             </M3Pressable>
           </View>
 
@@ -572,11 +566,6 @@ const styles = StyleSheet.create({
   carouselCard: {
     padding: 8,
     borderWidth: 1.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   carouselArtWrapper: {
     width: '100%',

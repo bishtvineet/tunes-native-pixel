@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { View, Image, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../common/Icon';
 import { M3Pressable } from '../common/M3Pressable';
+import { AppText } from '../common/AppText';
 import { formatDuration } from '../../utils/audio';
 import type { Track } from '../../types';
 
@@ -98,7 +99,7 @@ export const SongCard: React.FC<SongCardProps> = ({
       </View>
 
       <View style={styles.metaContainer}>
-        <Text
+        <AppText
           numberOfLines={1}
           style={[
             styles.title,
@@ -112,10 +113,10 @@ export const SongCard: React.FC<SongCardProps> = ({
           ]}
         >
           {song.title}
-        </Text>
-        <Text numberOfLines={1} style={[styles.artist, { color: tokens.onSurfaceVariant }]}>
+        </AppText>
+        <AppText numberOfLines={1} variant="secondary" style={styles.artist}>
           {song.artist} • {displayDuration}
-        </Text>
+        </AppText>
       </View>
 
       {/* Show Standard Row Actions only when NOT in Selection Mode */}

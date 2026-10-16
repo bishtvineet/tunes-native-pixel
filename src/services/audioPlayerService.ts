@@ -1,14 +1,8 @@
-import { setAudioModeAsync } from 'expo-audio';
-
+/**
+ * Background audio lifecycle configuration.
+ * react-native-track-player manages the native AudioSession (iOS)
+ * and ForegroundService (Android) lifecycle directly.
+ */
 export const configureBackgroundAudio = async (): Promise<void> => {
-  try {
-    await setAudioModeAsync({
-      playsInSilentMode: true,
-      staysActiveInBackground: true,
-      interruptionMode: 'doNotMix',
-      shouldRouteThroughEarpiece: false,
-    } as any);
-  } catch (error) {
-    console.warn('[AudioService] Failed to set background audio mode:', error);
-  }
+  // Handled natively by react-native-track-player playback service
 };

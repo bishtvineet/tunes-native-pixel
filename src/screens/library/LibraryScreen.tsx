@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -19,6 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../../components/common/Icon';
 import { SongCard } from '../../components/cards/SongCard';
+import { AppText } from '../../components/common/AppText';
+import { getElevation } from '../../theme/elevation';
 import {
   getCustomLibraries,
   createCustomLibrary,
@@ -158,8 +159,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     })
   ).current;
 
-  // ─── Bulk Action Helpers ───
-
   const enterSelectionMode = (initialTrackId: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -259,8 +258,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     await loadLibraries();
   };
 
-  // ─── Custom Library Helpers ───
-
   const handleCreateLibrary = async () => {
     if (!newLibName.trim()) return;
     try {
@@ -351,8 +348,6 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     );
   }, [filteredByTab, searchQuery]);
 
-  // ─── FlatList Optimization Callbacks ───
-
   const renderSongItem: ListRenderItem<Track> = useCallback(
     ({ item }) => {
       const isSelected = selectedTrackIds.includes(item.id);
@@ -420,10 +415,10 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
       <View style={styles.headerComponentWrapper}>
         <View style={styles.headerRow}>
           <View>
-            <Text style={[styles.title, { color: tokens.onSurface }]}>Your Library</Text>
-            <Text style={[styles.subtitle, { color: tokens.onSurfaceVariant }]}>
+            <AppText style={styles.title}>Your Library</AppText>
+            <AppText variant="secondary" style={styles.subtitle}>
               {tracks.length} offline {tracks.length === 1 ? 'song' : 'songs'} saved
-            </Text>
+            </AppText>
           </View>
 
           <View
@@ -437,7 +432,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             ]}
           >
             <Icon name="library" size={14} color={tokens.primary} />
-            <Text style={[styles.storageText, { color: tokens.onSurface }]}>{storageUsage}</Text>
+            <AppText style={styles.storageText}>{storageUsage}</AppText>
           </View>
         </View>
 
@@ -480,14 +475,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               },
             ]}
           >
-            <Text
+            <AppText
               style={[
                 styles.pillText,
                 { color: activeTab === 'ALL' ? '#FFFFFF' : tokens.onSurfaceVariant },
               ]}
             >
               All Tracks ({nonFavoriteTracks.length})
-            </Text>
+            </AppText>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -500,14 +495,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               },
             ]}
           >
-            <Text
+            <AppText
               style={[
                 styles.pillText,
                 { color: activeTab === 'FAVORITES' ? '#FFFFFF' : tokens.onSurfaceVariant },
               ]}
             >
               Favorites ({favoriteTracks.length})
-            </Text>
+            </AppText>
           </TouchableOpacity>
 
           {customLibs.map((lib) => {
@@ -528,14 +523,14 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                   },
                 ]}
               >
-                <Text
+                <AppText
                   style={[
                     styles.pillText,
                     { color: isSelected ? '#FFFFFF' : tokens.onSurface },
                   ]}
                 >
                   {lib.name} ({songCount})
-                </Text>
+                </AppText>
               </TouchableOpacity>
             );
           })}
@@ -556,9 +551,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             ]}
           >
             <Icon name="sparkles" size={13} color={tokens.primary} />
-            <Text style={[styles.pillText, { color: tokens.primary, fontWeight: '800' }]}>
+            <AppText variant="accent" style={[styles.pillText, { fontWeight: '800' }]}>
               + Add
-            </Text>
+            </AppText>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -580,20 +575,20 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     return (
       <View style={styles.emptyContainer}>
         <Icon name="library" size={48} color={tokens.outline} />
-        <Text style={[styles.emptyTitle, { color: tokens.onSurface }]}>
+        <AppText style={styles.emptyTitle}>
           {activeTab === 'FAVORITES'
             ? 'No favorites yet'
             : activeCustomLib
             ? `No tracks in "${activeCustomLib.name}"`
             : 'No un-favorited tracks'}
-        </Text>
-        <Text style={[styles.emptySubtitle, { color: tokens.onSurfaceVariant }]}>
+        </AppText>
+        <AppText variant="secondary" style={styles.emptySubtitle}>
           {activeTab === 'FAVORITES'
             ? 'Tap the heart icon on any track to add it to your favorites.'
             : activeCustomLib
             ? 'Tap the playlist icon on any song card to add tracks into this library.'
             : 'All your tracks are currently marked as favorites.'}
-        </Text>
+        </AppText>
       </View>
     );
   }, [activeTab, activeCustomLib, tokens]);
@@ -624,9 +619,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             <TouchableOpacity onPress={exitSelectionMode} style={styles.contextualIconBtn}>
               <Icon name="close" size={20} color={tokens.onSurface} />
             </TouchableOpacity>
-            <Text style={[styles.contextualCountText, { color: tokens.onSurface }]}>
+            <AppText style={styles.contextualCountText}>
               {selectedTrackIds.length} Selected
-            </Text>
+            </AppText>
           </View>
 
           <View style={styles.contextualActions}>
@@ -634,9 +629,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               onPress={() => handleToggleSelectAll(displayedTracks)}
               style={styles.contextualTextBtn}
             >
-              <Text style={[styles.selectBtnText, { color: tokens.primary }]}>
+              <AppText variant="accent" style={styles.selectBtnText}>
                 {selectedTrackIds.length === displayedTracks.length ? 'Deselect All' : 'Select All'}
-              </Text>
+              </AppText>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={handleBulkDelete} style={styles.actionCircleBtn}>
@@ -688,6 +683,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           <Pressable
             style={[
               styles.dialogCard,
+              getElevation(5),
               {
                 backgroundColor: tokens.surface,
                 borderRadius: shapes.lg,
@@ -696,12 +692,10 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.dialogTitle, { color: tokens.onSurface }]}>
-              New Custom Library
-            </Text>
-            <Text style={[styles.dialogSubtitle, { color: tokens.onSurfaceVariant }]}>
+            <AppText style={styles.dialogTitle}>New Custom Library</AppText>
+            <AppText variant="secondary" style={styles.dialogSubtitle}>
               Group specific genres, regions, or playlists (e.g. "Pahari Songs", "Gym", "Lofi").
-            </Text>
+            </AppText>
 
             <TextInput
               value={newLibName}
@@ -728,23 +722,23 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 }}
                 style={styles.dialogCancelBtn}
               >
-                <Text style={[styles.dialogBtnText, { color: tokens.onSurfaceVariant }]}>
+                <AppText variant="secondary" style={styles.dialogBtnText}>
                   Cancel
-                </Text>
+                </AppText>
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleCreateLibrary}
                 style={[styles.dialogCreateBtn, { backgroundColor: tokens.primary, borderRadius: shapes.pill }]}
               >
-                <Text style={[styles.dialogBtnText, { color: '#FFFFFF' }]}>Create</Text>
+                <AppText style={[styles.dialogBtnText, { color: '#FFFFFF' }]}>Create</AppText>
               </TouchableOpacity>
             </View>
           </Pressable>
         </Pressable>
       </Modal>
 
-      {/* ─── Modal 2: Modern Gesture-Dismissable Bottom Sheet (Bulk & Single) ─── */}
+      {/* ─── Modal 2: Bottom Sheet (Bulk & Single) ─── */}
       <Modal
         visible={tracksToAssign.length > 0}
         transparent
@@ -767,6 +761,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           <Animated.View
             style={[
               styles.sheetCard,
+              getElevation(5),
               {
                 backgroundColor: tokens.surface,
                 borderTopLeftRadius: shapes.sheet,
@@ -784,14 +779,12 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
 
               <View style={styles.sheetHeader}>
                 <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={[styles.sheetTitle, { color: tokens.onSurface }]}>
-                    Add to Library
-                  </Text>
-                  <Text numberOfLines={1} style={[styles.sheetSubtitle, { color: tokens.onSurfaceVariant }]}>
+                  <AppText style={styles.sheetTitle}>Add to Library</AppText>
+                  <AppText numberOfLines={1} variant="secondary" style={styles.sheetSubtitle}>
                     {tracksToAssign.length === 1
                       ? tracksToAssign[0]?.title
                       : `${tracksToAssign.length} selected tracks`}
-                  </Text>
+                  </AppText>
                 </View>
 
                 <TouchableOpacity
@@ -809,12 +802,10 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                 <View style={[styles.emptyIconCircle, { backgroundColor: tokens.primaryContainer + '40' }]}>
                   <Icon name="library" size={30} color={tokens.primary} />
                 </View>
-                <Text style={[styles.emptyPromptTitle, { color: tokens.onSurface }]}>
-                  No Custom Libraries Yet
-                </Text>
-                <Text style={[styles.emptyPromptSubtitle, { color: tokens.onSurfaceVariant }]}>
+                <AppText style={styles.emptyPromptTitle}>No Custom Libraries Yet</AppText>
+                <AppText variant="secondary" style={styles.emptyPromptSubtitle}>
                   Create collections like "Pahari Songs", "Road Trip", or "Workout" to organize your offline music.
-                </Text>
+                </AppText>
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() => {
@@ -824,7 +815,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                   style={[styles.createFirstBtn, { backgroundColor: tokens.primary, borderRadius: shapes.pill }]}
                 >
                   <Icon name="sparkles" size={16} color="#FFFFFF" />
-                  <Text style={styles.createFirstBtnText}>+ Create Library</Text>
+                  <AppText style={styles.createFirstBtnText}>+ Create Library</AppText>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -874,7 +865,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                             />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text
+                            <AppText
                               numberOfLines={1}
                               style={{
                                 color: allInLib ? tokens.primary : tokens.onSurface,
@@ -884,17 +875,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                               }}
                             >
                               {lib.name}
-                            </Text>
-                            <Text
+                            </AppText>
+                            <AppText
+                              variant="secondary"
                               style={{
-                                color: tokens.onSurfaceVariant,
                                 fontSize: 12,
                                 marginTop: 2,
                                 fontWeight: '500',
                               }}
                             >
                               {songCount} {songCount === 1 ? 'song' : 'songs'}
-                            </Text>
+                            </AppText>
                           </View>
                         </View>
 
@@ -931,9 +922,9 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                     ]}
                   >
                     <Icon name="sparkles" size={15} color={tokens.primary} />
-                    <Text style={[styles.addNewLibInlineText, { color: tokens.primary }]}>
+                    <AppText variant="accent" style={styles.addNewLibInlineText}>
                       New Library
-                    </Text>
+                    </AppText>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -950,7 +941,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                       },
                     ]}
                   >
-                    <Text style={styles.sheetDoneBtnText}>Done</Text>
+                    <AppText style={styles.sheetDoneBtnText}>Done</AppText>
                   </TouchableOpacity>
                 </View>
               </>
@@ -1101,11 +1092,6 @@ const styles = StyleSheet.create({
     width: '100%',
     padding: 22,
     borderWidth: 1.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 20,
   },
   dialogTitle: {
     fontSize: 20,
@@ -1152,11 +1138,6 @@ const styles = StyleSheet.create({
   sheetCard: {
     paddingHorizontal: 22,
     borderTopWidth: 1.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -10 },
-    shadowOpacity: 0.55,
-    shadowRadius: 24,
-    elevation: 24,
   },
   dragGestureHeader: {
     paddingBottom: 10,

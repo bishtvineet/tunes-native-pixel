@@ -7,6 +7,7 @@ import TrackPlayer, {
   Event,
   useTrackPlayerEvents,
   RepeatMode as TrackPlayerRepeatMode,
+  AppKilledPlaybackBehavior,
 } from 'react-native-track-player';
 import { updateTrackDuration } from '../services/storage';
 import type { Track, RepeatMode, PlaybackContext } from '../types';
@@ -20,6 +21,10 @@ const setupPlayer = async (): Promise<void> => {
       autoHandleInterruptions: true,
     });
     await TrackPlayer.updateOptions({
+      android: {
+        appKilledPlaybackBehavior:
+          AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+      },
       capabilities: [
         Capability.Play,
         Capability.Pause,
@@ -32,23 +37,33 @@ const setupPlayer = async (): Promise<void> => {
         Capability.Pause,
         Capability.SkipToNext,
       ],
+      notificationCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+      ],
     });
     isPlayerSetup = true;
-  } catch {
+  } catch (err) {
+    console.warn('[TrackPlayer] Setup error:', err);
     isPlayerSetup = true;
   }
 };
 
 export function useAudioPlayer() {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
-  const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
+  // Default set to 'all' instead of 'off'
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
   const [isShuffle, setIsShuffle] = useState<boolean>(false);
   const [playbackContext, setPlaybackContext] = useState<PlaybackContext>('All');
   const [queue, setQueue] = useState<Track[]>([]);
 
   const queueRef = useRef<Track[]>([]);
   const currentTrackRef = useRef<Track | null>(null);
-  const repeatModeRef = useRef<RepeatMode>('off');
+  // Ref default set to 'all'
+  const repeatModeRef = useRef<RepeatMode>('all');
   const isShuffleRef = useRef<boolean>(false);
   const isManualSkipRef = useRef<boolean>(false);
 
@@ -85,10 +100,6 @@ export function useAudioPlayer() {
     isShuffleRef.current = isShuffle;
   }, [isShuffle]);
 
-  useEffect(() => {
-    setupPlayer().catch(console.error);
-  }, []);
-
   const syncNativeRepeatMode = useCallback(async (mode: RepeatMode) => {
     try {
       if (mode === 'one') {
@@ -102,6 +113,12 @@ export function useAudioPlayer() {
       console.warn('[useAudioPlayer] syncNativeRepeatMode error:', e);
     }
   }, []);
+
+  useEffect(() => {
+    setupPlayer()
+      .then(() => syncNativeRepeatMode('all'))
+      .catch(console.error);
+  }, [syncNativeRepeatMode]);
 
   // Track transitions listener
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
@@ -271,10 +288,11 @@ export function useAudioPlayer() {
 
   const toggleRepeat = useCallback(async () => {
     setRepeatMode((prev) => {
-      let next: RepeatMode = 'off';
-      if (prev === 'off') next = 'all';
-      else if (prev === 'all') next = 'one';
-      else next = 'off';
+      // Cycle starts at 'all' -> 'one' -> 'off' -> 'all'
+      let next: RepeatMode = 'all';
+      if (prev === 'all') next = 'one';
+      else if (prev === 'one') next = 'off';
+      else next = 'all';
 
       syncNativeRepeatMode(next);
       return next;

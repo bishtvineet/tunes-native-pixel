@@ -1,9 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
-  Text,
   Image,
-  TouchableOpacity,
   StyleSheet,
   Dimensions,
   Animated,
@@ -16,18 +14,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
 import { Icon } from '../common/Icon';
 import { M3Pressable } from '../common/M3Pressable';
-import { WavySliderExpressive } from './WavySliderExpressive';
-import { formatDuration } from '../../utils/audio';
+import { AppText } from '../common/AppText';
+import { getElevation } from '../../theme/elevation';
+import { MiniPlayer } from './MiniPlayer';
+import { ProgressBarSection } from './ProgressBarSection';
+import { CarouselAlbumArt } from './CarouselAlbumArt';
 import type { Track, RepeatMode, PlaybackContext } from '../../types';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-// ─── Trimmed 3D Card Dimensions ───
-const ARTWORK_WIDTH = Math.min(SCREEN_WIDTH - 44, 340);
-const ARTWORK_HEIGHT = Math.round(ARTWORK_WIDTH * 0.68);
-
-const MINI_HEIGHT = 64;
-const SCRUBBER_TRACK_WIDTH = SCREEN_WIDTH - 48;
+const MINI_HEIGHT = 74;
 const GLOW_WIDTH = 42;
 
 interface FullPlayerSheetProps {
@@ -77,12 +72,12 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     currentTrack?.isFavorite ?? false
   );
 
-  // ─── Bounce Animators for Bottom Controls (Shuffle, Repeat, Favorite) ───
+  // Bounce Animators for Bottom Bar (Shuffle, Repeat, Favorite)
   const shuffleBounceAnim = useRef(new Animated.Value(1)).current;
   const repeatBounceAnim = useRef(new Animated.Value(1)).current;
   const favoriteBounceAnim = useRef(new Animated.Value(1)).current;
 
-  // ─── Continuous Organic Beat Glow Engine ───
+  // Continuous Organic Beat Glow Engine
   const glowPulseAnim = useRef(new Animated.Value(0)).current;
   const glowScaleXAnim = useRef(new Animated.Value(0.7)).current;
 
@@ -145,7 +140,6 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     return () => loopAnimation?.stop();
   }, [isPlaying, isExpandedState, isAmbientGlowEnabled, glowPulseAnim, glowScaleXAnim]);
 
-  // Jitter-free Native Driver Bounce for bottom icons
   const triggerIconBounce = (anim: Animated.Value) => {
     anim.stopAnimation();
     anim.setValue(1);
@@ -154,7 +148,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
         toValue: 1.28,
         duration: 90,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: true, // Native driver eliminates frame drops
+        useNativeDriver: true,
       }),
       Animated.spring(anim, {
         toValue: 1.0,
@@ -192,7 +186,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
 
   const activeProgressFraction = targetSeekFraction !== null ? targetSeekFraction : actualFraction;
 
-  // ─── Expansion Weights for Prev / Play / Next ───
+  // Expansion Weights for Prev / Play / Next Buttons
   const prevWeight = useRef(new Animated.Value(1)).current;
   const playWeight = useRef(new Animated.Value(1.15)).current;
   const nextWeight = useRef(new Animated.Value(1)).current;
@@ -258,7 +252,6 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     onSeek(Math.floor(fraction * totalDuration));
   };
 
-  // Smooth, non-blocking expansion spring for transport controls
   const triggerButtonExpansion = (button: 'prev' | 'play' | 'next') => {
     prevWeight.stopAnimation();
     playWeight.stopAnimation();
@@ -292,12 +285,14 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     });
   };
 
+  // Root vertical PanResponder: listens to thumb swipes anywhere on the sheet
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => {
+        // Only claim the gesture if the vertical motion is clearly intentional
         return (
-          Math.abs(gesture.dy) > 15 &&
-          Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.8
+          Math.abs(gesture.dy) > 10 &&
+          Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.5
         );
       },
       onPanResponderMove: (_, gesture) => {
@@ -305,23 +300,31 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
           const progress = Math.min(Math.max(-gesture.dy / (SCREEN_HEIGHT * 0.5), 0), 1);
           expansionFraction.setValue(progress);
         } else {
+          // Drag down to minimize
           const progress = Math.min(Math.max(1 - gesture.dy / (SCREEN_HEIGHT * 0.5), 0), 1);
           expansionFraction.setValue(progress);
         }
       },
       onPanResponderRelease: (_, gesture) => {
         if (!isExpandedRef.current) {
-          if (gesture.dy < -70 || gesture.vy < -0.4) {
+          if (gesture.dy < -60 || gesture.vy < -0.35) {
             expandSheet();
           } else {
             collapseSheet();
           }
         } else {
-          if (gesture.dy > 80 || gesture.vy > 0.4) {
+          if (gesture.dy > 70 || gesture.vy > 0.35) {
             collapseSheet();
           } else {
             expandSheet();
           }
+        }
+      },
+      onPanResponderTerminate: () => {
+        if (isExpandedRef.current) {
+          expandSheet();
+        } else {
+          collapseSheet();
         }
       },
     })
@@ -376,6 +379,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
     <Animated.View
       style={[
         styles.sheetRoot,
+        getElevation(4),
         {
           height: sheetHeight,
           bottom: sheetBottom,
@@ -389,11 +393,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
       ]}
       {...panResponder.panHandlers}
     >
+      {/* Blurred Backdrop */}
       <Animated.View
-        style={[
-          styles.blurredBackdropContainer,
-          { opacity: fullPlayerOpacity },
-        ]}
+        style={[styles.blurredBackdropContainer, { opacity: fullPlayerOpacity }]}
         pointerEvents="none"
       >
         {currentTrack.thumbnailUrl ? (
@@ -404,22 +406,16 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             resizeMode="cover"
           />
         ) : null}
-
         <View style={[styles.glassFrostedScrim, { backgroundColor: '#130B2288' }]} />
       </Animated.View>
 
-      {/* Ultra-Smooth Dual-Layer Ambient Edge Bleed */}
-      {isAmbientGlowEnabled ? (
+      {/* Ambient OLED Edge Light */}
+      {isAmbientGlowEnabled && (
         <Animated.View
-          style={[
-            styles.ambientGlowContainer,
-            {
-              opacity: fullPlayerOpacity,
-            },
-          ]}
+          style={[styles.ambientGlowContainer, { opacity: fullPlayerOpacity }]}
           pointerEvents="none"
         >
-          {/* Left Ambient Bleed */}
+          {/* Left Glow */}
           <Animated.View
             style={[
               styles.leftGlowPillar,
@@ -432,13 +428,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             <View
               style={[
                 styles.nativeGlowBezelLeft,
-                {
-                  shadowColor: primaryGlowColor,
-                  backgroundColor: primaryGlowColor,
-                },
+                { shadowColor: primaryGlowColor, backgroundColor: primaryGlowColor },
               ]}
             />
-
             <Svg width={GLOW_WIDTH} height={SCREEN_HEIGHT} style={StyleSheet.absoluteFill}>
               <Defs>
                 <LinearGradient id="leftSoftWash" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -454,7 +446,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             </Svg>
           </Animated.View>
 
-          {/* Right Ambient Bleed */}
+          {/* Right Glow */}
           <Animated.View
             style={[
               styles.rightGlowPillar,
@@ -467,13 +459,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             <View
               style={[
                 styles.nativeGlowBezelRight,
-                {
-                  shadowColor: secondaryGlowColor,
-                  backgroundColor: secondaryGlowColor,
-                },
+                { shadowColor: secondaryGlowColor, backgroundColor: secondaryGlowColor },
               ]}
             />
-
             <Svg width={GLOW_WIDTH} height={SCREEN_HEIGHT} style={StyleSheet.absoluteFill}>
               <Defs>
                 <LinearGradient id="rightSoftWash" x1="100%" y1="0%" x2="0%" y2="0%">
@@ -489,61 +477,21 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             </Svg>
           </Animated.View>
         </Animated.View>
-      ) : null}
+      )}
 
-      {/* Mini Player */}
-      <Animated.View
-        style={[styles.miniLayer, { opacity: miniPlayerOpacity }]}
-        pointerEvents={isExpandedState ? 'none' : 'auto'}
-      >
-        <TouchableOpacity activeOpacity={1} onPress={expandSheet} style={styles.miniTouchable}>
-          <View style={styles.miniProgressTrack}>
-            <View
-              style={[
-                styles.miniProgressFill,
-                { width: `${activeProgressFraction * 100}%`, backgroundColor: tokens.primary },
-              ]}
-            />
-          </View>
+      {/* Mini Player Section (Active when minimized) */}
+      <MiniPlayer
+        currentTrack={currentTrack}
+        isPlaying={isPlaying}
+        progressFraction={activeProgressFraction}
+        opacityAnim={miniPlayerOpacity}
+        onExpand={expandSheet}
+        onTogglePlay={onTogglePlay}
+        onNext={onNext}
+        onPrev={onPrev}
+      />
 
-          <View style={styles.miniContentRow}>
-            <View
-              style={[
-                styles.miniArtContainer,
-                { backgroundColor: tokens.surfaceVariant, borderRadius: shapes.md },
-              ]}
-            >
-              {currentTrack.thumbnailUrl ? (
-                <Image
-                  source={{ uri: currentTrack.thumbnailUrl }}
-                  style={styles.fullImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Icon name="library" size={18} color={tokens.primary} />
-              )}
-            </View>
-
-            <View style={styles.miniMetaCol}>
-              <Text numberOfLines={1} style={[styles.miniTitle, { color: tokens.onSurface }]}>
-                {currentTrack.title}
-              </Text>
-              <Text numberOfLines={1} style={[styles.miniSubtitle, { color: tokens.onSurfaceVariant }]}>
-                {currentTrack.artist}
-              </Text>
-            </View>
-
-            <M3Pressable
-              onPress={onTogglePlay}
-              style={[styles.miniPlayCircle, { backgroundColor: tokens.primary }]}
-            >
-              <Icon name={isPlaying ? 'pause' : 'play'} size={20} color="#FFFFFF" />
-            </M3Pressable>
-          </View>
-        </TouchableOpacity>
-      </Animated.View>
-
-      {/* Full Player */}
+      {/* Full Expanded Player Layer */}
       <Animated.View
         style={[
           styles.fullLayer,
@@ -553,8 +501,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             paddingBottom: insets.bottom + 16,
           },
         ]}
-        pointerEvents={isExpandedState ? 'auto' : 'none'}
+        pointerEvents={isExpandedState ? 'box-none' : 'none'}
       >
+        {/* Top Header Bar */}
         <View style={styles.topAppBarRow}>
           <View style={styles.topLeftHeaderGroup}>
             <M3Pressable
@@ -565,12 +514,10 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
             </M3Pressable>
 
             <View style={styles.nowPlayingTextGroup}>
-              <Text style={[styles.nowPlayingText, { color: tokens.onSurface }]}>
-                Now Playing
-              </Text>
-              <Text style={[styles.categoryBadgeText, { color: tokens.primary }]}>
+              <AppText style={styles.nowPlayingText}>Now Playing</AppText>
+              <AppText variant="accent" style={styles.categoryBadgeText}>
                 {categoryLabel}
-              </Text>
+              </AppText>
             </View>
           </View>
 
@@ -582,81 +529,36 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
           </M3Pressable>
         </View>
 
-        {/* ─── Hero Artwork Section with 3D Depth ─── */}
-        <View style={styles.artworkSection}>
-          <View
-            style={[
-              styles.hero3DOuterShadowContainer,
-              {
-                width: ARTWORK_WIDTH,
-                height: ARTWORK_HEIGHT,
-                borderRadius: shapes.sheet,
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.heroArtworkBox,
-                {
-                  borderRadius: shapes.sheet,
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                },
-              ]}
-            >
-              {currentTrack.thumbnailUrl ? (
-                <Image
-                  source={{ uri: currentTrack.thumbnailUrl }}
-                  style={styles.heroArtworkImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Icon name="library" size={96} color={tokens.primary} />
-              )}
+        {/* Hero Artwork Section */}
+        <CarouselAlbumArt
+          thumbnailUrl={currentTrack.thumbnailUrl}
+          onNext={onNext}
+          onPrev={onPrev}
+        />
 
-              {/* 3D Inner Bevel & Top-Light Specular Glaze */}
-              <View style={[styles.inner3DBevelGleam, { borderRadius: shapes.sheet }]} pointerEvents="none" />
-              <View style={[styles.inner3DBottomShadow, { borderRadius: shapes.sheet }]} pointerEvents="none" />
-            </View>
-          </View>
-        </View>
-
-        {/* Song Metadata */}
+        {/* Track Title and Artist */}
         <View style={styles.songMetadataRow}>
           <View style={styles.metaCol}>
-            <Text numberOfLines={1} style={[styles.songTitle, { color: tokens.onSurface }]}>
+            <AppText numberOfLines={1} style={styles.songTitle}>
               {currentTrack.title}
-            </Text>
-            <Text numberOfLines={1} style={[styles.songArtist, { color: tokens.onSurfaceVariant }]}>
+            </AppText>
+            <AppText numberOfLines={1} variant="secondary" style={styles.songArtist}>
               {currentTrack.artist}
-            </Text>
+            </AppText>
           </View>
         </View>
 
-        {/* Scrubber Section */}
-        <View style={styles.scrubberSection}>
-          <WavySliderExpressive
-            progressFraction={activeProgressFraction}
-            isPlaying={isPlaying}
-            onSeekChange={(fraction) => setTargetSeekFraction(fraction)}
-            onSeekCommit={handleSeekCommit}
-            activeTrackColor={tokens.primary}
-            inactiveTrackColor="rgba(255, 255, 255, 0.18)"
-            thumbColor={tokens.primary}
-            trackWidth={SCRUBBER_TRACK_WIDTH}
-          />
+        {/* Wavy Scrubber & Durations */}
+        <ProgressBarSection
+          progressFraction={activeProgressFraction}
+          currentTimeSeconds={activeProgressFraction * totalDuration}
+          totalDurationSeconds={totalDuration}
+          isPlaying={isPlaying}
+          onSeekChange={(fraction) => setTargetSeekFraction(fraction)}
+          onSeekCommit={handleSeekCommit}
+        />
 
-          <View style={styles.timeLabelRow}>
-            <Text style={[styles.timeLabelText, { color: tokens.onSurfaceVariant }]}>
-              {formatDuration(activeProgressFraction * totalDuration)}
-            </Text>
-
-            <Text style={[styles.timeLabelText, { color: tokens.onSurfaceVariant }]}>
-              {formatDuration(totalDuration)}
-            </Text>
-          </View>
-        </View>
-
-        {/* 3-Button Animated Playback Controls (Jitter-free expansion) */}
+        {/* Transport Action Controls */}
         <View style={styles.playbackControlsRow}>
           <Animated.View style={[styles.transportCol, { flex: prevWeight }]}>
             <M3Pressable
@@ -683,6 +585,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
               pressedScale={0.93}
               style={[
                 styles.transportPlayButton,
+                getElevation(3),
                 {
                   backgroundColor: tokens.primary,
                   borderRadius: isPlaying ? 26 : 60,
@@ -710,7 +613,7 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
           </Animated.View>
         </View>
 
-        {/* Bottom Toggle Segmented Row */}
+        {/* Bottom Toggle Bar (Shuffle, Repeat, Favorite) */}
         <View style={[styles.bottomToggleBar, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
           <M3Pressable
             onPress={handleToggleShufflePress}
@@ -758,9 +661,9 @@ export const FullPlayerSheet: React.FC<FullPlayerSheetProps> = ({
                   },
                 ]}
               >
-                <Text style={styles.repeatBadgeText}>
+                <AppText style={styles.repeatBadgeText}>
                   {repeatMode === 'one' ? '1' : repeatMode === 'all' ? 'ALL' : 'OFF'}
-                </Text>
+                </AppText>
               </View>
             </View>
           </M3Pressable>
@@ -794,11 +697,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     overflow: 'hidden',
     zIndex: 50,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.55,
-    shadowRadius: 18,
-    elevation: 12,
   },
   blurredBackdropContainer: {
     ...StyleSheet.absoluteFill,
@@ -859,57 +757,6 @@ const styles = StyleSheet.create({
     shadowRadius: 22,
     elevation: 12,
   },
-  fullImage: {
-    width: '100%',
-    height: '100%',
-  },
-  miniLayer: {
-    ...StyleSheet.absoluteFill,
-  },
-  miniTouchable: {
-    flex: 1,
-  },
-  miniProgressTrack: {
-    width: '100%',
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  miniProgressFill: {
-    height: '100%',
-  },
-  miniContentRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  miniArtContainer: {
-    width: 44,
-    height: 44,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniMetaCol: {
-    flex: 1,
-    marginLeft: 12,
-    marginRight: 8,
-  },
-  miniTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  miniSubtitle: {
-    fontSize: 11,
-    marginTop: 2,
-  },
-  miniPlayCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   fullLayer: {
     ...StyleSheet.absoluteFill,
     paddingHorizontal: 24,
@@ -951,56 +798,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderWidth: 1,
   },
-  artworkSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 4,
-  },
-  hero3DOuterShadowContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.75,
-    shadowRadius: 28,
-    elevation: 22,
-  },
-  heroArtworkBox: {
-    width: '100%',
-    height: '100%',
-    borderWidth: 2,
-    borderTopColor: 'rgba(255, 255, 255, 0.5)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.35)',
-    borderRightColor: 'rgba(0, 0, 0, 0.45)',
-    borderBottomColor: 'rgba(0, 0, 0, 0.7)',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#000000',
-    position: 'relative',
-  },
-  heroArtworkImage: {
-    width: '100%',
-    height: '135%',
-  },
-  inner3DBevelGleam: {
-    ...StyleSheet.absoluteFill,
-    borderTopWidth: 2.5,
-    borderLeftWidth: 1.5,
-    borderTopColor: 'rgba(255, 255, 255, 0.65)',
-    borderLeftColor: 'rgba(255, 255, 255, 0.4)',
-    borderRightColor: 'transparent',
-    borderBottomColor: 'transparent',
-  },
-  inner3DBottomShadow: {
-    ...StyleSheet.absoluteFill,
-    borderBottomWidth: 3,
-    borderRightWidth: 1.5,
-    borderBottomColor: 'rgba(0, 0, 0, 0.65)',
-    borderRightColor: 'rgba(0, 0, 0, 0.45)',
-    borderTopColor: 'transparent',
-    borderLeftColor: 'transparent',
-  },
   songMetadataRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1020,31 +817,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginTop: 3,
-  },
-  scrubberSection: {
-    width: '100%',
-    paddingVertical: 4,
-  },
-  timeLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
-    paddingHorizontal: 2,
-  },
-  timeLabelText: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  metaChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: 999,
-  },
-  metaChipText: {
-    fontSize: 10,
-    fontWeight: '700',
   },
   playbackControlsRow: {
     flexDirection: 'row',
@@ -1069,11 +841,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
   },
   bottomToggleBar: {
     flexDirection: 'row',

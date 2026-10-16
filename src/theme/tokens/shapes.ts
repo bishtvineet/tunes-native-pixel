@@ -1,7 +1,10 @@
 export const shapes = {
-  sm: 8,     // Shape.small[cite: 1]
-  md: 16,    // Shape.medium[cite: 1]
-  lg: 24,    // Shape.large[cite: 1]
-  sheet: 28, // widget_preview_background radius[cite: 1]
-  pill: 60,  // widget_preview_circular_button radius[cite: 1]
+  xs: 4,
+  sm: 8,
+  md: 14,
+  lg: 20,
+  sheet: 28,
+  pill: 9999,
 } as const;
+
+export type Shapes = typeof shapes;
