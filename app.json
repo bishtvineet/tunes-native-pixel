@@ -43,9 +43,6 @@
             "extraMavenRepos": [
               "../node_modules/react-native-track-player/android"
             ]
-          },
-          "ios": {
-            "deploymentTarget": "15.1"
           }
         }
       ]

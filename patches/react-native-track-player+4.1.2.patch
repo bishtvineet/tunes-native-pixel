@@ -1,0 +1,52 @@
+--- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
++++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
+@@ -107,17 +107,25 @@ class MusicModule(private val reactContext: ReactApplicationContext) : ReactCont
+ 
+     @ReactMethod
+     fun add(tracks: ReadableArray, insertBeforeId: String?, callback: Promise) {
+-        scope.launch {
++        scope.launch {
+             musicService.add(tracks, insertBeforeId, callback)
+-        }
++        }
+     }
+ 
+     @ReactMethod
+     fun load(track: ReadableMap, callback: Promise) {
+-        scope.launch {
++        scope.launch {
+             musicService.load(track, callback)
+-        }
++        }
+     }
+ 
+     @ReactMethod
+     fun play(callback: Promise) {
+-        scope.launch {
++        scope.launch {
+             musicService.play(callback)
+-        }
+     }
+ 
+     @ReactMethod
+     fun pause(callback: Promise) {
+-        scope.launch {
++        scope.launch {
+             musicService.pause(callback)
+-        }
+     }
+--- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
++++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
+@@ -108,8 +108,8 @@ class MusicService : HeadlessJsTaskService() {
+     fun emit(event: MusicEvents, data: Bundle) {
+-        val context = (applicationContext as? ReactApplication)?.reactNativeHost?.reactInstanceManager?.currentReactContext
++        val context = reactContext
+         if (context == null) {
+             MainScope().launch {
+-                delay(500)
+-                emit(event, data)
++                delay(500)
++                reactContext?.let { emit(event, data) }
+             }
+             return
+         }
